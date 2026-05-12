@@ -22,5 +22,5 @@ export const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY
 export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET
 
 // frotend url
-export const FRONTEND_URL = process.env.FRONTEND_URL
+export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
