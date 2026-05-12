@@ -11,9 +11,8 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS configuration
 app.use(cors({
-    origin: [FRONTEND_URL, 'http://localhost:5173'].filter(Boolean),
+    origin: ['http://localhost:5173', FRONTEND_URL].filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization']
