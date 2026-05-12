@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import { FRONTEND_URL,MONGO_URI, PORT } from './Config/env.js';
+import { FRONTEND_URL, MONGO_URI, PORT } from './Config/env.js';
 import { userRouter } from './Routers/userRouter.js';
 import { galleryRouter } from './Routers/galleryRouter.js';
 
