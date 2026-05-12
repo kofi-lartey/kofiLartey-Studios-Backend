@@ -14,9 +14,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
     origin: function (origin, callback) {
         const allowedOrigins = [
-            "http://localhost:5173",
-            "https://kofilartey-studios.netlify.app",
-            FRONTEND_URL 
+            "https://kofilartey-studios.netlify.app"
         ];
 
         // allow Postman / server-to-server
