@@ -1,30 +1,51 @@
 import express from 'express';
-import { FRONTEND_URL, MONGO_URI, PORT } from './Config/env.js';
 import mongoose from 'mongoose';
 import cors from 'cors';
+import { FRONTEND_URL, MONGO_URI, PORT } from './Config/env.js';
 import { userRouter } from './Routers/userRouter.js';
 import { galleryRouter } from './Routers/galleryRouter.js';
 
 const app = express();
 
-// Middleware
+// 1. MIDDLEWARE 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// 2. CORS CONFIGURATION
+// This MUST come before your routes
+const allowedOrigins = [
+    'http://localhost:5173', 
+    FRONTEND_URL 
+];
+
 app.use(cors({
-    origin: ['http://localhost:5173', FRONTEND_URL].filter(Boolean),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or Postman)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            // Log exactly what origin is being blocked for easier debugging
+            console.log("CORS blocked origin:", origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Request logging middleware
+// Handle preflight
+app.options('*', cors());
+
+// 3. LOGGING
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.originalUrl}`);
     next();
 });
 
-// Routes
+// 4. ROUTES
 app.use('/api/V1/users', userRouter);
 app.use('/api/V1/gallery', galleryRouter);
 
@@ -37,37 +58,28 @@ app.get('/api/V1/health', (req, res) => {
     });
 });
 
-// 404 handler
+// 5. ERROR HANDLING
 app.use((req, res) => {
-    console.log(`404 - Route not found: ${req.method} ${req.originalUrl}`);
     res.status(404).json({
         success: false,
         message: `Route not found: ${req.method} ${req.originalUrl}`
     });
 });
 
-// Error handler
 app.use((err, req, res, next) => {
     console.error('Global error handler:', err);
     res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: err.message 
     });
 });
 
-// MongoDB connection
+// 6. CONNECTIONS
 mongoose.connect(MONGO_URI)
-    .then(() => {
-        console.log('Connected to MongoDB');
-    })
-    .catch((err) => {
-        console.error('Error connecting to MongoDB:', err);
-    });
+    .then(() => console.log('Connected to MongoDB'))
+    .catch((err) => console.error('Error connecting to MongoDB:', err));
 
-// Start server
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}: http://localhost:${PORT}`);
-    console.log(`API Base URL: http://localhost:${PORT}/api/V1`);
-    console.log(`Gallery API URL: http://localhost:${PORT}/api/V1/gallery`);
+    console.log(`Server is running on port ${PORT}`);
 });
