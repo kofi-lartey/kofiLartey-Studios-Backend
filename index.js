@@ -13,7 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS configuration
 app.use(cors({
-    origin: FRONTEND_URL || 'http://localhost:5173',
+    origin: [FRONTEND_URL, 'http://localhost:5173'].filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -31,8 +31,8 @@ app.use('/api/V1/gallery', galleryRouter);
 
 // Test route
 app.get('/api/V1/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
+    res.json({
+        status: 'OK',
         message: 'Server is running',
         timestamp: new Date().toISOString()
     });
