@@ -10,26 +10,7 @@ dotenv.config();
 
 const app = express();
 
-const allowedOrigins = [
-    'http://localhost:5173',
-    process.env.FRONTEND_URL // This will be your production URL
-].filter(Boolean); // Removes undefined values if FRONTEND_URL isn't set
-
-app.use(cors({
-    origin: function (origin, callback) {
-        console.log('CORS origin check:', { origin, allowedOrigins });
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            // Instead of throwing an error object that might trigger the global error handler,
-            // just tell CORS it's not allowed.
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(cors());
 
 // 2. Then other middlewares
 app.use(express.json());
