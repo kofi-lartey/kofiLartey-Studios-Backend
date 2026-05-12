@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import { MONGO_URI, PORT } from './Config/env.js';
+import { FRONTEND_URL,MONGO_URI, PORT } from './Config/env.js';
 import { userRouter } from './Routers/userRouter.js';
 import { galleryRouter } from './Routers/galleryRouter.js';
 
@@ -15,8 +15,8 @@ app.use(cors({
     origin: function (origin, callback) {
         const allowedOrigins = [
             "http://localhost:5173",
-            "http://localhost:3000",
-            "https://kofilarte-studios-frontend.onrender.com" // CHANGE THIS
+            "https://kofilartey-studios.netlify.app",
+            FRONTEND_URL 
         ];
 
         // allow Postman / server-to-server
@@ -32,11 +32,6 @@ app.use(cors({
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
-}));
-
-app.use(cors({
-    origin: "*",
-    credentials: false
 }));
 
 
