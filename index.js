@@ -36,8 +36,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Handle preflight
-app.options('*', cors());
+
 
 // 3. LOGGING
 app.use((req, res, next) => {
