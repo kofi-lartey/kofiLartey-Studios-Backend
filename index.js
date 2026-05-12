@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import { FRONTEND_URL, MONGO_URI, PORT } from './Config/env.js';
+import { MONGO_URI, PORT } from './Config/env.js';
 import { userRouter } from './Routers/userRouter.js';
 import { galleryRouter } from './Routers/galleryRouter.js';
 
@@ -11,29 +11,32 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 2. CORS CONFIGURATION
-// This MUST come before your routes
-const allowedOrigins = [
-    'http://localhost:5173', 
-    FRONTEND_URL 
-];
-
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or Postman)
+        const allowedOrigins = [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "https://kofilarte-studios-frontend.onrender.com" // CHANGE THIS
+        ];
+
+        // allow Postman / server-to-server
         if (!origin) return callback(null, true);
 
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            // Log exactly what origin is being blocked for easier debugging
-            console.log("CORS blocked origin:", origin);
-            callback(new Error('Not allowed by CORS'));
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
         }
+
+        console.log("❌ Blocked CORS origin:", origin);
+        return callback(null, false); // IMPORTANT: don't throw error
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+app.use(cors({
+    origin: "*",
+    credentials: false
 }));
 
 
@@ -70,7 +73,7 @@ app.use((err, req, res, next) => {
     res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: err.message 
+        error: err.message
     });
 });
 
