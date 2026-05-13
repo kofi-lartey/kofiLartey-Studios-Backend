@@ -3,7 +3,6 @@ dotenv.config();
 
 import express from 'express';
 import mongoose from 'mongoose';
-import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { MONGO_URI, PORT, FRONTEND_URL } from './Config/env.js';
@@ -19,10 +18,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const isDevelopment = NODE_ENV === 'development';
 
 // ============================================================================
-// 1. CORS - MUST BE THE VERY FIRST MIDDLEWARE
-// ============================================================================
-// ============================================================================
-// 1. CORS - MUST BE THE VERY FIRST MIDDLEWARE
+// 1. CORS - ABSOLUTE FIRST
 // ============================================================================
 app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -34,51 +30,40 @@ app.use((req, res, next) => {
         FRONTEND_URL
     ].filter(Boolean);
 
-    console.log('═══════════════════════════════════════');
-    console.log(`🌐 ${req.method} ${req.url}`);
-    console.log('📍 Origin:', origin);
-    console.log('📋 Allowed origins:', JSON.stringify(allowedOrigins));
-    console.log('✅ Is allowed:', allowedOrigins.includes(origin));
-    console.log('🔑 FRONTEND_URL env:', FRONTEND_URL);
-
-    // Set CORS headers for ALL responses
-    if (origin && allowedOrigins.includes(origin)) {
-        console.log('🟢 Setting CORS headers for origin:', origin);
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-    } else {
-        console.log('🔴 NOT setting Allow-Origin. Reason:', !origin ? 'no origin' : 'origin not in list');
-    }
-
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.setHeader('Access-Control-Max-Age', '86400');
+    console.log(`🌐 ${req.method} ${req.url} - Origin: ${origin}`);
 
     if (req.method === 'OPTIONS') {
-        console.log('✅ Sending preflight response');
-        console.log('📤 Response headers:', {
-            'Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
-            'Allow-Credentials': res.getHeader('Access-Control-Allow-Credentials'),
-            'Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
-            'Allow-Headers': res.getHeader('Access-Control-Allow-Headers')
-        });
-        return res.status(200).send('OK');
+        const headers = {
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+            'Access-Control-Max-Age': '86400',
+            'Vary': 'Origin'
+        };
+
+        if (origin && allowedOrigins.includes(origin)) {
+            headers['Access-Control-Allow-Origin'] = origin;
+            headers['Access-Control-Allow-Credentials'] = 'true';
+        } else {
+            headers['Access-Control-Allow-Origin'] = '*';
+        }
+
+        console.log('✅ Preflight headers:', JSON.stringify(headers));
+        res.writeHead(200, headers);
+        return res.end();
     }
 
+    // For regular requests
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
+    res.setHeader('Vary', 'Origin');
     next();
 });
 
 // ============================================================================
-// 2. HELMET - AFTER CORS
-// ============================================================================
-app.use(helmet({
-    crossOriginResourcePolicy: false,
-    crossOriginOpenerPolicy: false,
-    contentSecurityPolicy: false
-}));
-
-// ============================================================================
-// 3. RATE LIMITING
+// 2. RATE LIMITING (optional, skip in dev)
 // ============================================================================
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -86,20 +71,20 @@ const globalLimiter = rateLimit({
     message: 'Too many requests',
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => isDevelopment,
+    skip: () => isDevelopment,
     validate: { trustProxy: false }
 });
 
 app.use(globalLimiter);
 
 // ============================================================================
-// 4. BODY PARSING
+// 3. BODY PARSING
 // ============================================================================
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================================
-// 5. LOGGING
+// 4. LOGGING
 // ============================================================================
 app.use((req, res, next) => {
     req.id = uuidv4();
@@ -108,7 +93,7 @@ app.use((req, res, next) => {
 });
 
 // ============================================================================
-// 6. ROUTES
+// 5. ROUTES
 // ============================================================================
 app.get('/api/V1/health', (req, res) => {
     res.json({
@@ -124,9 +109,8 @@ app.use('/api/V1/users', userRouter);
 app.use('/api/V1/gallery', galleryRouter);
 
 // ============================================================================
-// 7. ERROR HANDLING
+// 6. ERROR HANDLING
 // ============================================================================
-// 404 handler
 app.use((req, res) => {
     res.status(404).json({
         success: false,
@@ -134,7 +118,6 @@ app.use((req, res) => {
     });
 });
 
-// Global error handler
 app.use((err, req, res, next) => {
     console.error('❌ Error:', err.message);
     res.status(500).json({
@@ -145,7 +128,7 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================================
-// 8. START SERVER
+// 7. START SERVER
 // ============================================================================
 mongoose.connect(MONGO_URI)
     .then(() => {
