@@ -1,18 +1,31 @@
 import nodemailer from 'nodemailer';
 import { SMTP_HOST, SMTP_PORT, EMAIL_USER, EMAIL_PASS } from '../Config/env.js';
 
-// Create a transporter for SMTP
+// Validate email credentials at startup
+if (!SMTP_HOST || !SMTP_PORT || !EMAIL_USER || !EMAIL_PASS) {
+  throw new Error(
+    'Missing required email environment variables. ' +
+    'Ensure SMTP_HOST, SMTP_PORT, EMAIL_USER, and EMAIL_PASS are set in .env'
+  );
+}
+
 const transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: parseInt(SMTP_PORT),
-  secure: parseInt(SMTP_PORT) === 465,
+  host: SMTP_HOST.trim(),
+  port: Number(SMTP_PORT.trim()),
+  secure: Number(SMTP_PORT.trim()) === 465, // true only for 465, false for 587 (uses STARTTLS)
   auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
+    user: EMAIL_USER.trim(),
+    pass: EMAIL_PASS.trim(),
   },
-  family: 4, // Force IPv4 to avoid ENETUNREACH on IPv6-only networks
+  family: 4, // Force IPv4
+  logger: true,
+  debug: true,
 });
 
+transporter.verify()
+  .then(() => console.log("📧 SMTP server is ready"))
+  .catch(err => console.error("❌ SMTP verify failed:", err));
+  
 /**
  * Send OTP verification email
  */
@@ -166,13 +179,13 @@ export const sendOTPEmail = async (email, studioName, otpCode) => {
 };
 
 export const sendPasswordResetEmail = async (email, studioName, resetURL) => {
-    try {
-        const info = await transporter.sendMail({
-            from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: '🔐 Password Reset Request - Kofi Lartey Studios',
-            text: `Hello ${studioName},\n\nYou requested a password reset. Click the link below to reset your password:\n\n${resetURL}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nKofi Lartey Studios Team`,
-            html: `
+  try {
+    const info = await transporter.sendMail({
+      from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '🔐 Password Reset Request - Kofi Lartey Studios',
+      text: `Hello ${studioName},\n\nYou requested a password reset. Click the link below to reset your password:\n\n${resetURL}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nKofi Lartey Studios Team`,
+      html: `
                 <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden;">
                     <!-- Header -->
                     <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 32px 24px; text-align: center;">
@@ -217,23 +230,23 @@ export const sendPasswordResetEmail = async (email, studioName, resetURL) => {
                     </div>
                 </div>
             `
-        });
+    });
 
-        console.log("✅ Password reset email sent to:", email);
-        return info;
-    } catch (error) {
-        console.error("❌ Error while sending password reset email:", error);
-        throw new Error(`Failed to send password reset email: ${error.message}`);
-    }
+    console.log("✅ Password reset email sent to:", email);
+    return info;
+  } catch (error) {
+    console.error("❌ Error while sending password reset email:", error);
+    throw new Error(`Failed to send password reset email: ${error.message}`);
+  }
 };
 
 export const sendPasswordResetOTP = async (email, studioName, otpCode) => {
-    try {
-        const info = await transporter.sendMail({
-            from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: '🔐 Password Reset OTP - Kofi Lartey Studios',
-            html: `
+  try {
+    const info = await transporter.sendMail({
+      from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '🔐 Password Reset OTP - Kofi Lartey Studios',
+      html: `
                 <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto;">
                     <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 30px; text-align: center;">
                         <h1 style="color: white; margin: 0;">Kofi Lartey Studios</h1>
@@ -253,23 +266,23 @@ export const sendPasswordResetOTP = async (email, studioName, otpCode) => {
                     </div>
                 </div>
             `
-        });
-        console.log("✅ Password reset OTP sent to:", email);
-        return info;
-    } catch (error) {
-        console.error("❌ Error while sending password reset OTP:", error);
-        throw new Error(`Failed to send password reset OTP: ${error.message}`);
-    }
+    });
+    console.log("✅ Password reset OTP sent to:", email);
+    return info;
+  } catch (error) {
+    console.error("❌ Error while sending password reset OTP:", error);
+    throw new Error(`Failed to send password reset OTP: ${error.message}`);
+  }
 };
 
 export const sendVerificationEmail = async (email, studioName, otpCode) => {
-    try {
-        const info = await transporter.sendMail({
-            from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: '🔐 Verify Your New Email Address - Kofi Lartey Studios',
-            text: `Hello ${studioName},\n\nYour verification code for your new email address is: ${otpCode}\n\nThis code expires in 10 minutes.\n\nIf you didn't change your email, please contact support immediately.\n\nBest regards,\nKofi Lartey Studios Team`,
-            html: `
+  try {
+    const info = await transporter.sendMail({
+      from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '🔐 Verify Your New Email Address - Kofi Lartey Studios',
+      text: `Hello ${studioName},\n\nYour verification code for your new email address is: ${otpCode}\n\nThis code expires in 10 minutes.\n\nIf you didn't change your email, please contact support immediately.\n\nBest regards,\nKofi Lartey Studios Team`,
+      html: `
                 <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden;">
                     <!-- Header -->
                     <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 32px 24px; text-align: center;">
@@ -317,14 +330,14 @@ export const sendVerificationEmail = async (email, studioName, otpCode) => {
                     </div>
                 </div>
             `
-        });
+    });
 
-        console.log("✅ Verification email sent to:", email);
-        return info;
-    } catch (error) {
-        console.error("❌ Error while sending verification email:", error);
-        throw new Error(`Failed to send verification email: ${error.message}`);
-    }
+    console.log("✅ Verification email sent to:", email);
+    return info;
+  } catch (error) {
+    console.error("❌ Error while sending verification email:", error);
+    throw new Error(`Failed to send verification email: ${error.message}`);
+  }
 };
 
 /**

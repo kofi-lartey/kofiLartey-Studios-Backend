@@ -68,12 +68,16 @@ export const UserModal = new Schema({
         type: Date,
         default: null,
     },
-    lastActive: {
-        type: Date,
-        default: null,
-    },
-    
-    // Role and admin
+lastActive: {
+         type: Date,
+         default: null,
+     },
+     lastLogout: {
+         type: Date,
+         default: null,
+     },
+
+     // Role and admin
     role: {
         type: String,
         enum: ['user', 'admin', 'moderator'],

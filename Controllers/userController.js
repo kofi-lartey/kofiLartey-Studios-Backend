@@ -3,7 +3,7 @@ import { registerSchema, resendOTPSchema, verifyEmailSchema, loginSchema, forgot
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { OTPExpirationTime, OTPGenerator } from "../Utiles/additionals.js";
-import { sendOTPEmail, sendPasswordResetOTP,sendVerificationEmail } from "../Utiles/mailer.js";
+import { sendOTPEmail, sendPasswordResetOTP, sendVerificationEmail } from "../Utiles/mailer.js";
 import { FRONTEND_URL, JWT_EXPIRES_IN, JWT_SECRET } from "../Config/env.js";
 import crypto from 'crypto';
 
@@ -373,9 +373,7 @@ export const resendVerificationOTP = async (req, res) => {
         await user.save();
 
         // Send new OTP email (don't await to avoid blocking, but handle errors)
-        sendOTPEmail(email, user.studioName, otpCode).catch(emailError => {
-            console.error('Failed to send OTP email:', emailError);
-        });
+        await sendOTPEmail(email, user.studioName, otpCode);
 
         return res.status(200).json({
             success: true,
@@ -757,6 +755,32 @@ export const resetPassword = async (req, res) => {
 
 
 
+// Sign out user (invalidate session)
+export const signOut = async (req, res) => {
+    try {
+        const userId = req.userId;
+
+        // Optional: Update lastLogout timestamp for audit trail
+        await User.findByIdAndUpdate(userId, {
+            $set: { lastLogout: new Date() }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Signed out successfully.'
+        });
+
+    } catch (error) {
+        console.error('Error in signOut controller:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'An error occurred while signing out. Please try again later.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 export const updateProfile = async (req, res) => {
     try {
         // Get user from authenticated request
@@ -765,17 +789,17 @@ export const updateProfile = async (req, res) => {
 
         // Prepare update data from body and file
         let updateData = {};
-        
+
         // Handle text fields from request body
         if (req.body.name) updateData.name = req.body.name;
         if (req.body.email) updateData.email = req.body.email.toLowerCase().trim();
         if (req.body.studioName) updateData.studioName = req.body.studioName;
-        
+
         // Handle profile image upload
         if (req.file) {
             updateData.profileImage = req.file.secure_url || req.file.url;
         }
-        
+
         // If profileImage is explicitly set to null or empty string in body
         if (req.body.profileImage === 'null' || req.body.profileImage === '') {
             updateData.profileImage = null;
@@ -804,14 +828,14 @@ export const updateProfile = async (req, res) => {
 
         // Track if email is being changed
         const isEmailChanging = value.email && value.email !== currentUser.email;
-        
+
         // Check if email is being changed and if it's already taken
         if (isEmailChanging) {
-            const existingUser = await User.findOne({ 
+            const existingUser = await User.findOne({
                 email: value.email,
                 _id: { $ne: userId } // Exclude current user
             });
-            
+
             if (existingUser) {
                 return res.status(409).json({
                     success: false,
@@ -822,11 +846,11 @@ export const updateProfile = async (req, res) => {
 
         // Check if studioName is being changed and if it's already taken
         if (value.studioName && value.studioName !== currentUser.studioName) {
-            const existingStudio = await User.findOne({ 
+            const existingStudio = await User.findOne({
                 studioName: value.studioName,
                 _id: { $ne: userId }
             });
-            
+
             if (existingStudio) {
                 return res.status(409).json({
                     success: false,
@@ -843,7 +867,7 @@ export const updateProfile = async (req, res) => {
             const hashedOTP = await bcrypt.hash(otpCode, 10);
             const otpExpiration = new Date();
             otpExpiration.setMinutes(otpExpiration.getMinutes() + 10); // 10 minutes expiry
-            
+
             updateData.otp = hashedOTP;
             updateData.otpExpiration = otpExpiration;
             updateData.isVerified = false;
@@ -858,7 +882,7 @@ export const updateProfile = async (req, res) => {
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             updateData,
-            { 
+            {
                 returnDocument: 'after', // Return updated document
                 runValidators: true, // Run schema validators
                 context: 'query'
@@ -922,7 +946,7 @@ export const updateProfile = async (req, res) => {
         // Prepare success message
         let message = 'Profile updated successfully';
         let requiresNewVerification = false;
-        
+
         if (isEmailChanging) {
             message = 'Profile updated successfully. A verification code has been sent to your new email address. Please verify your new email to continue.';
             requiresNewVerification = true;
