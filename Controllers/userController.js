@@ -898,45 +898,82 @@ export const signOut = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
     try {
-        // Get user from authenticated request
+        // Get authenticated user
         const userId = req.userId;
         const currentUser = req.user;
 
-        // Prepare update data from body and file
+        // Prepare update object
         let updateData = {};
 
-        // Handle text fields from request body
-        if (req.body.name !== undefined) updateData.name = req.body.name;
-        if (req.body.email !== undefined) updateData.email = req.body.email?.toLowerCase().trim();
-        if (req.body.studioName !== undefined) updateData.studioName = req.body.studioName;
+        // =========================
+        // Handle text fields
+        // =========================
+        if (req.body.name !== undefined) {
+            updateData.name = req.body.name.trim();
+        }
 
-        // Handle profileImage removal (check before Cloudinary upload)
-        const shouldRemoveImage = req.body.profileImage === 'null' || req.body.profileImage === '' || req.body.removeImage === 'true';
+        if (req.body.email !== undefined) {
+            updateData.email = req.body.email.toLowerCase().trim();
+        }
 
-        // Handle profile image upload
+        if (req.body.studioName !== undefined) {
+            updateData.studioName = req.body.studioName.trim();
+        }
+
+        // =========================
+        // Handle profile image
+        // =========================
+        const shouldRemoveImage =
+            req.body.profileImage === 'null' ||
+            req.body.profileImage === '' ||
+            req.body.removeImage === 'true';
+
+        // Uploaded image from Cloudinary middleware
         if (req.cloudinaryResult && !shouldRemoveImage) {
             updateData.profileImage = req.cloudinaryResult.secure_url;
-        } else if (shouldRemoveImage) {
+        }
+
+        // Remove image
+        if (shouldRemoveImage) {
             updateData.profileImage = null;
         }
 
-        // Check if there's anything to update
+        // =========================
+        // Ensure something is changing
+        // =========================
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
                 success: false,
-                message: 'No valid fields to update. Please provide at least one field to update.'
+                message:
+                    'No valid fields to update. Please provide at least one field.'
             });
         }
 
-        // Track what is being changed
-        const isEmailChanging = updateData.email && updateData.email !== currentUser.email;
-        const isStudioNameChanging = updateData.studioName && updateData.studioName !== currentUser.studioName;
-        const isNameChanging = updateData.name && updateData.name !== currentUser.name;
-        const isProfileImageChanging = updateData.profileImage !== undefined && updateData.profileImage !== currentUser.profileImage;
+        // =========================
+        // Detect changes
+        // =========================
+        const isEmailChanging =
+            updateData.email &&
+            updateData.email !== currentUser.email;
 
-        // Validate email format if being updated
+        const isStudioNameChanging =
+            updateData.studioName &&
+            updateData.studioName !== currentUser.studioName;
+
+        const isNameChanging =
+            updateData.name &&
+            updateData.name !== currentUser.name;
+
+        const isProfileImageChanging =
+            updateData.profileImage !== undefined &&
+            updateData.profileImage !== currentUser.profileImage;
+
+        // =========================
+        // Validate email format
+        // =========================
         if (isEmailChanging) {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
             if (!emailRegex.test(updateData.email)) {
                 return res.status(400).json({
                     success: false,
@@ -945,7 +982,9 @@ export const updateProfile = async (req, res) => {
             }
         }
 
-        // Check if email is being changed and if it's already taken
+        // =========================
+        // Check email uniqueness
+        // =========================
         if (isEmailChanging) {
             const existingUser = await User.findOne({
                 email: updateData.email,
@@ -955,12 +994,15 @@ export const updateProfile = async (req, res) => {
             if (existingUser) {
                 return res.status(409).json({
                     success: false,
-                    message: 'Email is already taken by another user. Please use a different email.'
+                    message:
+                        'Email is already taken by another user. Please use a different email.'
                 });
             }
         }
 
-        // Check if studioName is being changed and if it's already taken
+        // =========================
+        // Check studio name uniqueness
+        // =========================
         if (isStudioNameChanging) {
             const existingStudio = await User.findOne({
                 studioName: updateData.studioName,
@@ -970,43 +1012,58 @@ export const updateProfile = async (req, res) => {
             if (existingStudio) {
                 return res.status(409).json({
                     success: false,
-                    message: 'Studio name is already taken. Please choose another one.'
+                    message:
+                        'Studio name is already taken. Please choose another one.'
                 });
             }
         }
 
-        // Handle email change with OTP verification
+        // =========================
+        // Handle email verification reset
+        // =========================
         let otpCode = null;
         let requiresNewVerification = false;
+        let emailSent = false;
 
         if (isEmailChanging) {
-            // Generate new OTP for email verification
             otpCode = OTPGenerator(6);
+
             const hashedOTP = await bcrypt.hash(otpCode, 10);
+
             const otpExpiration = new Date();
-            otpExpiration.setMinutes(otpExpiration.getMinutes() + 10); // 10 minutes expiry
+            otpExpiration.setMinutes(
+                otpExpiration.getMinutes() + 10
+            );
 
             updateData.otp = hashedOTP;
             updateData.otpExpiration = otpExpiration;
+
             updateData.isVerified = false;
             updateData.emailVerifiedAt = null;
             updateData.failedOTPAttempts = 0;
+
             requiresNewVerification = true;
         }
 
-        // Add lastActive update
+        // =========================
+        // Update last active
+        // =========================
         updateData.lastActive = new Date();
 
+        // =========================
         // Update user
+        // =========================
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             updateData,
             {
-                returnDocument: 'after',
+                new: true,
                 runValidators: true,
                 context: 'query'
             }
-        ).select('-password -otp -otpExpiration -passwordResetToken -passwordResetExpires -passwordResetOTP -passwordResetOTPExpires -adminCode -failedOTPAttempts -failedLoginAttempts');
+        ).select(
+            '-password -otp -otpExpiration -passwordResetToken -passwordResetExpires -passwordResetOTP -passwordResetOTPExpires -adminCode -failedOTPAttempts -failedLoginAttempts'
+        );
 
         if (!updatedUser) {
             return res.status(404).json({
@@ -1015,74 +1072,77 @@ export const updateProfile = async (req, res) => {
             });
         }
 
-        // Send verification email if email was changed
+        // =========================
+        // Send verification email
+        // =========================
         if (isEmailChanging && otpCode) {
             try {
-                await sendVerificationEmail(updatedUser.email, updatedUser.studioName, otpCode);
-                console.log(`✅ Verification email sent to new email: ${updatedUser.email}`);
+                await sendVerificationEmail(
+                    updatedUser.email,
+                    updatedUser.studioName,
+                    otpCode
+                );
 
-                return res.status(200).json({
-                    success: true,
-                    message: 'Profile updated successfully! A verification code has been sent to your new email address. Please verify your new email to continue.',
-                    data: {
-                        user: {
-                            id: updatedUser._id,
-                            name: updatedUser.name,
-                            email: updatedUser.email,
-                            studioName: updatedUser.studioName,
-                            profileImage: updatedUser.profileImage,
-                            isVerified: updatedUser.isVerified,
-                            isActive: updatedUser.isActive,
-                            role: updatedUser.role,
-                            lastActive: updatedUser.lastActive,
-                            createdAt: updatedUser.createdAt,
-                            updatedAt: updatedUser.updatedAt
-                        },
-                        requiresNewVerification: true,
-                        emailSent: true
-                    }
-                });
+                emailSent = true;
+
+                console.log(
+                    `✅ Verification email sent to ${updatedUser.email}`
+                );
             } catch (emailError) {
-                console.error('❌ Failed to send verification email:', emailError);
+                console.error(
+                    '❌ Failed to send verification email:',
+                    emailError
+                );
 
-                // Return success but indicate email wasn't sent
-                return res.status(200).json({
-                    success: true,
-                    message: 'Profile updated successfully, but verification email could not be sent. Please use the "Resend Verification" option to get your code.',
-                    data: {
-                        user: {
-                            id: updatedUser._id,
-                            name: updatedUser.name,
-                            email: updatedUser.email,
-                            studioName: updatedUser.studioName,
-                            profileImage: updatedUser.profileImage,
-                            isVerified: updatedUser.isVerified,
-                            isActive: updatedUser.isActive,
-                            role: updatedUser.role,
-                            lastActive: updatedUser.lastActive,
-                            createdAt: updatedUser.createdAt,
-                            updatedAt: updatedUser.updatedAt
-                        },
-                        requiresNewVerification: true,
-                        emailSent: false
-                    }
-                });
+                emailSent = false;
             }
         }
 
-        // If no email change, just return the updated profile
+        // =========================
+        // Build success message
+        // =========================
         const changes = [];
-        if (isNameChanging) changes.push('name');
-        if (isStudioNameChanging) changes.push('studio name');
-        if (isProfileImageChanging) changes.push('profile image');
 
-        const changeMessage = changes.length > 0
-            ? `Profile updated successfully! ${changes.join(', ')} updated.`
-            : 'Profile updated successfully!';
+        if (isNameChanging) {
+            changes.push('name');
+        }
 
+        if (isStudioNameChanging) {
+            changes.push('studio name');
+        }
+
+        if (isProfileImageChanging) {
+            changes.push('profile image');
+        }
+
+        if (isEmailChanging) {
+            changes.push('email');
+        }
+
+        let message = 'Profile updated successfully!';
+
+        if (changes.length > 0) {
+            message = `Profile updated successfully! ${changes.join(
+                ', '
+            )} updated.`;
+        }
+
+        if (requiresNewVerification && emailSent) {
+            message =
+                'Profile updated successfully! A verification code has been sent to your new email address.';
+        }
+
+        if (requiresNewVerification && !emailSent) {
+            message =
+                'Profile updated successfully, but verification email could not be sent. Please resend verification.';
+        }
+
+        // =========================
+        // Final response
+        // =========================
         return res.status(200).json({
             success: true,
-            message: changeMessage,
+            message,
             data: {
                 user: {
                     id: updatedUser._id,
@@ -1097,45 +1157,60 @@ export const updateProfile = async (req, res) => {
                     createdAt: updatedUser.createdAt,
                     updatedAt: updatedUser.updatedAt
                 },
-                requiresNewVerification: false,
-                emailSent: false
+                requiresNewVerification,
+                emailSent
             }
         });
 
     } catch (error) {
-        console.error('❌ Error in updateProfile controller:', error);
+        console.error(
+            '❌ Error in updateProfile controller:',
+            error
+        );
 
-        // Handle duplicate key error (MongoDB error code 11000)
+        // =========================
+        // Duplicate key errors
+        // =========================
         if (error.code === 11000) {
             const field = Object.keys(error.keyPattern)[0];
-            const fieldName = field === 'studioName' ? 'Studio name' : field === 'email' ? 'Email' : field;
+
+            const fieldName =
+                field === 'studioName'
+                    ? 'Studio name'
+                    : field === 'email'
+                        ? 'Email'
+                        : field;
+
             return res.status(409).json({
                 success: false,
                 message: `${fieldName} is already taken. Please choose another one.`
             });
         }
 
-        // Handle validation errors
+        // =========================
+        // Validation errors
+        // =========================
         if (error.name === 'ValidationError') {
             return res.status(400).json({
                 success: false,
                 message: 'Validation error',
-                errors: Object.values(error.errors).map(err => err.message)
+                errors: Object.values(error.errors).map(
+                    err => err.message
+                )
             });
         }
 
-        // Handle bcrypt errors
-        if (error.name === 'BcryptError') {
-            return res.status(500).json({
-                success: false,
-                message: 'Error processing security data. Please try again.'
-            });
-        }
-
+        // =========================
+        // Generic server error
+        // =========================
         return res.status(500).json({
             success: false,
-            message: 'An error occurred while updating profile. Please try again later.',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            message:
+                'An error occurred while updating profile. Please try again later.',
+            error:
+                process.env.NODE_ENV === 'development'
+                    ? error.message
+                    : undefined
         });
     }
 };
