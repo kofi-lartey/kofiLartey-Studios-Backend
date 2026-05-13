@@ -17,6 +17,12 @@ const transporter = nodemailer.createTransport({
     user: EMAIL_USER.trim(),
     pass: EMAIL_PASS.trim(),
   },
+  requireTLS: Number(SMTP_PORT.trim()) === 587, // Gmail 587 requires explicit STARTTLS
+  tls: {
+    rejectUnauthorized: false, // Tolerate cert mismatches on some networks
+  },
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
   family: 4, // Force IPv4
   logger: true,
   debug: true,

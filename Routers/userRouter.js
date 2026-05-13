@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { forgotPassword, login, register, resendVerificationOTP, resetPassword, signOut, updateProfile, verifyEmail } from "../Controllers/userController.js";
+import { forgotPassword, login, register, resendVerificationOTP, resetPassword, signOut, updateProfile, verifyEmail, getProfile } from "../Controllers/userController.js";
 import { uploadSingle } from "../Utiles/uploadFiles.js";
 import { authenticate } from "../Middleware/auth.js";
 
@@ -15,4 +15,5 @@ userRouter.post('/reset-password', resetPassword);
 // userRouter.post('/verify-reset-otp', verifyResetOTP);
 
 // user profile
+userRouter.get('/me', authenticate, getProfile);
 userRouter.patch('/profile',authenticate, uploadSingle, updateProfile);

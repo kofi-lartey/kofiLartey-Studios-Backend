@@ -755,6 +755,53 @@ export const resetPassword = async (req, res) => {
 
 
 
+// Get user profile
+export const getProfile = async (req, res) => {
+    try {
+        const userId = req.userId;
+
+        const user = await User.findById(userId).select('-password -otp -passwordResetToken -passwordResetExpires -passwordResetOTP -passwordResetOTPExpires -adminCode -failedLoginAttempts -failedOTPAttempts -lastOTPRequest');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const userData = {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            studioName: user.studioName,
+            profileImage: user.profileImage,
+            isVerified: user.isVerified,
+            isActive: user.isActive,
+            role: user.role,
+            lastActive: user.lastActive,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt
+        };
+
+        return res.status(200).json({
+            success: true,
+            message: 'Profile retrieved successfully',
+            data: {
+                user: userData
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in getProfile controller:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'An error occurred while fetching profile. Please try again later.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 // Sign out user (invalidate session)
 export const signOut = async (req, res) => {
     try {
