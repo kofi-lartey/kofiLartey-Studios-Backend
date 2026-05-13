@@ -319,6 +319,103 @@ export const processSingleImageFast =
   };
 
 // ===========================================
+// PROFILE IMAGE PROCESSOR
+// ===========================================
+
+export const processProfileImage =
+  async (req, res, next) => {
+    try {
+      if (!req.file) return next();
+
+      console.log(
+        `📤 Uploading profile image`
+      );
+
+      let finalPath = req.file.path;
+
+      // =====================================
+      // COMPRESS IF >= 10MB
+      // =====================================
+
+      const TEN_MB = 10 * 1024 * 1024;
+
+      if (req.file.size >= TEN_MB) {
+        console.log(
+          `🗜 Compressing profile image`
+        );
+
+        const compressedPath =
+          req.file.path.replace(
+            path.extname(req.file.path),
+            "-compressed.jpg"
+          );
+
+        await sharp(req.file.path)
+          .rotate()
+          .resize({
+            width: 1000,
+            withoutEnlargement: true
+          })
+          .jpeg({
+            quality: 85
+          })
+          .toFile(compressedPath);
+
+        finalPath = compressedPath;
+      }
+
+      // =====================================
+      // CLOUDINARY UPLOAD - PROFILE FOLDER
+      // =====================================
+
+      const result =
+        await cloudinary.uploader.upload(
+          finalPath,
+          {
+            folder:
+              "kofiLarteyStudios_Api/profiles",
+
+            resource_type: "image",
+
+            use_filename: false,
+
+            unique_filename: true,
+
+            overwrite: false
+          }
+        );
+
+      console.log(
+        `✅ Profile image uploaded`
+      );
+
+      // =====================================
+      // CLEANUP
+      // =====================================
+
+      await fs.remove(req.file.path);
+
+      if (finalPath !== req.file.path) {
+        await fs.remove(finalPath);
+      }
+
+      req.cloudinaryResult = result;
+
+      next();
+    } catch (error) {
+      console.error(
+        "PROFILE UPLOAD FAILED:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  };
+
+// ===========================================
 // EXPORT MULTER INITIALIZERS
 // ===========================================
 

@@ -1,5 +1,5 @@
 import { User } from "../Model/userModal.js";
-import { registerSchema, resendOTPSchema, verifyEmailSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPasswordWithOTPSchema, verifyResetOTPSchema, updateProfileSchema } from "../Scheme/userSchema.js";
+import { registerSchema, resendOTPSchema, verifyEmailSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPasswordWithOTPSchema, verifyResetOTPSchema, updateProfileSchema, changePasswordSchema } from "../Scheme/userSchema.js";
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { OTPExpirationTime, OTPGenerator } from "../Utiles/additionals.js";
@@ -802,6 +802,74 @@ export const getProfile = async (req, res) => {
     }
 };
 
+export const changePassword = async (req, res) => {
+    try {
+        const userId = req.userId;
+
+        const { error, value } = changePasswordSchema.validate(req.body);
+        if (error) {
+            return res.status(400).json({
+                success: false,
+                message: error.details[0].message,
+                errors: error.details.map(detail => ({
+                    field: detail.path[0],
+                    message: detail.message
+                }))
+            });
+        }
+
+        const { currentPassword, newPassword } = value;
+
+        const user = await User.findById(userId).select('+password');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Current password is incorrect'
+            });
+        }
+
+        if (currentPassword === newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be different from current password'
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        user.password = hashedPassword;
+        user.failedLoginAttempts = 0;
+        user.passwordResetOTP = null;
+        user.passwordResetOTPExpires = null;
+        user.passwordResetToken = null;
+        user.passwordResetExpires = null;
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+
+    } catch (error) {
+        console.error('Error in changePassword controller:', error);
+
+        return res.status(500).json({
+            success: false,
+            message: 'An error occurred while changing password. Please try again later.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 // Sign out user (invalidate session)
 export const signOut = async (req, res) => {
     try {
@@ -1067,6 +1135,54 @@ export const updateProfile = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'An error occurred while updating profile. Please try again later.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+export const uploadProfileImage = async (req, res) => {
+    try {
+        const userId = req.userId;
+
+        if (!req.cloudinaryResult) {
+            return res.status(400).json({
+                success: false,
+                message: 'No image uploaded'
+            });
+        }
+
+        const user = await User.findById(req.userId).select('+profileImage');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        user.profileImage = req.cloudinaryResult.secure_url;
+        user.lastActive = new Date();
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Profile image updated successfully',
+            data: {
+                profileImage: user.profileImage,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    studioName: user.studioName,
+                    profileImage: user.profileImage
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error in uploadProfileImage controller:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'An error occurred while uploading profile image. Please try again later.',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

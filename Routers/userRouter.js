@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { forgotPassword, login, register, resendVerificationOTP, resetPassword, signOut, updateProfile, verifyEmail, getProfile } from "../Controllers/userController.js";
-import { processSingleImageFast, uploadSingle } from "../Utiles/uploadFiles.js";
+import { forgotPassword, login, register, resendVerificationOTP, resetPassword, signOut, updateProfile, verifyEmail, getProfile, changePassword, uploadProfileImage } from "../Controllers/userController.js";
+import { processSingleImageFast, processProfileImage, uploadSingle } from "../Utiles/uploadFiles.js";
 import { authenticate } from "../Middleware/auth.js";
 
 export const userRouter = Router();
@@ -17,3 +17,5 @@ userRouter.post('/reset-password', resetPassword);
 // user profile
 userRouter.get('/me', authenticate, getProfile);
 userRouter.patch('/profile', authenticate, uploadSingle, processSingleImageFast, updateProfile);
+userRouter.put('/profile/image', authenticate, uploadSingle, processProfileImage, uploadProfileImage);
+userRouter.patch('/change-password', authenticate, changePassword);

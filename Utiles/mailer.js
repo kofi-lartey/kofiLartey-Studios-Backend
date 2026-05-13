@@ -9,35 +9,85 @@ if (!SMTP_HOST || !SMTP_PORT || !EMAIL_USER || !EMAIL_PASS) {
   );
 }
 
+const port = Number(SMTP_PORT.trim());
+// Use secure:true for port 465, secure:false for port 587 or 25
+const secure = port === 465;
+
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST.trim(),
-  port: Number(SMTP_PORT.trim()),
-  secure: Number(SMTP_PORT.trim()) === 465, // true only for 465, false for 587 (uses STARTTLS)
+  port: port,
+  secure: secure,
   auth: {
     user: EMAIL_USER.trim(),
     pass: EMAIL_PASS.trim(),
   },
-  requireTLS: Number(SMTP_PORT.trim()) === 587, // Gmail 587 requires explicit STARTTLS
   tls: {
-    rejectUnauthorized: false, // Tolerate cert mismatches on some networks
+    rejectUnauthorized: false,
   },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  family: 4, // Force IPv4
+  // Connection timeouts (in milliseconds)
+  connectionTimeout: 30000,    // 30 seconds to connect
+  greetingTimeout: 10000,       // 10 seconds for greeting
+  socketTimeout: 30000,         // 30 seconds for socket operations
+  
+  // Try both IPv4 and IPv6
+  family: undefined,
+  
+  // Connection pooling for better reliability
+  pool: {
+    maxConnections: 5,
+    maxMessages: 100,
+    rateDelta: 1000,
+    rateLimit: 5,
+  },
+  
   logger: true,
-  debug: true,
+  debug: process.env.DEBUG_MAILER === 'true',
 });
 
+// Verify SMTP connection and provide detailed feedback
 transporter.verify()
-  .then(() => console.log("📧 SMTP server is ready"))
-  .catch(err => console.error("❌ SMTP verify failed:", err));
+  .then(() => {
+    console.log("✅ SMTP server is ready");
+    console.log(`   Host: ${SMTP_HOST}`);
+    console.log(`   Port: ${port} (${secure ? 'Implicit TLS/SSL' : 'Explicit TLS (STARTTLS)'})`);
+  })
+  .catch((err) => {
+    console.error("❌ SMTP verify failed:", err.message);
+    console.error("   Error Code:", err.code);
+    console.error("   Troubleshooting steps:");
+    console.error("   1. Check SMTP_HOST and SMTP_PORT in your .env file");
+    console.error("   2. Verify EMAIL_USER and EMAIL_PASS are correct");
+    console.error("   3. Ensure your firewall allows outbound connections on port " + port);
+    console.error("   4. Check if the SMTP server is reachable (ping, telnet, or nslookup)");
+    console.error("   5. For Gmail, use 'App Passwords' instead of your regular password");
+  });
+  
+/**
+ * Helper function to send email with retry logic for timeout handling
+ */
+const sendEmailWithRetry = async (mailOptions, maxRetries = 3) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      return info;
+    } catch (error) {
+      if (error.code === 'ETIMEDOUT' && attempt < maxRetries) {
+        console.warn(`⚠️ Timeout on attempt ${attempt}. Retrying... (${attempt}/${maxRetries})`);
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      } else {
+        throw error; // Throw on last attempt or non-timeout errors
+      }
+    }
+  }
+};
   
 /**
  * Send OTP verification email
  */
 export const sendOTPEmail = async (email, studioName, otpCode) => {
   try {
-    const info = await transporter.sendMail({
+    const info = await sendEmailWithRetry({
       from: `"Kofi Lartey Studios" <${EMAIL_USER}>`,
       to: email,
       subject: `🎨 ${otpCode} is your Kofi Lartey Studios verification code`,
@@ -186,8 +236,8 @@ export const sendOTPEmail = async (email, studioName, otpCode) => {
 
 export const sendPasswordResetEmail = async (email, studioName, resetURL) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+    const info = await sendEmailWithRetry({
+      from: `"Kofi Lartey Studios" <${EMAIL_USER}>`,
       to: email,
       subject: '🔐 Password Reset Request - Kofi Lartey Studios',
       text: `Hello ${studioName},\n\nYou requested a password reset. Click the link below to reset your password:\n\n${resetURL}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nKofi Lartey Studios Team`,
@@ -248,8 +298,8 @@ export const sendPasswordResetEmail = async (email, studioName, resetURL) => {
 
 export const sendPasswordResetOTP = async (email, studioName, otpCode) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+    const info = await sendEmailWithRetry({
+      from: `"Kofi Lartey Studios" <${EMAIL_USER}>`,
       to: email,
       subject: '🔐 Password Reset OTP - Kofi Lartey Studios',
       html: `
@@ -283,8 +333,8 @@ export const sendPasswordResetOTP = async (email, studioName, otpCode) => {
 
 export const sendVerificationEmail = async (email, studioName, otpCode) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+    const info = await sendEmailWithRetry({
+      from: `"Kofi Lartey Studios" <${EMAIL_USER}>`,
       to: email,
       subject: '🔐 Verify Your New Email Address - Kofi Lartey Studios',
       text: `Hello ${studioName},\n\nYour verification code for your new email address is: ${otpCode}\n\nThis code expires in 10 minutes.\n\nIf you didn't change your email, please contact support immediately.\n\nBest regards,\nKofi Lartey Studios Team`,
@@ -351,89 +401,89 @@ export const sendVerificationEmail = async (email, studioName, otpCode) => {
  */
 export const sendWelcomeEmail = async (email, fullName) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"GhanaLove Dating" <${EMAIL_USER}>`,
+    const info = await sendEmailWithRetry({
+      from: `"Kofi Lartey Studios" <${EMAIL_USER}>`,
       to: email,
-      subject: "❤️ Welcome to GhanaLove – Your Journey Starts Here!",
-      text: `Hello ${fullName}, welcome to GhanaLove! You're now part of Ghana's most trusted dating community. Complete your profile and start meeting amazing people near you.`,
+      subject: "🎨 Welcome to Kofi Lartey Studios – Your Creative Journey Starts Here!",
+      text: `Hello ${fullName}, welcome to Kofi Lartey Studios! You're now part of a creative community of photographers and artists. Explore our gallery features and start showcasing your work.`,
       html: `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #fdf2f8; padding: 20px; text-align: center;">
-          <div style="max-width: 550px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(233, 30, 99, 0.1);">
+        <div style="font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); padding: 20px; text-align: center;">
+          <div style="max-width: 550px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
             
             <!-- Header with gradient -->
-            <div style="background: linear-gradient(135deg, #e91e63, #ad1457); padding: 40px 20px;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 32px;">❤️ GhanaLove</h1>
-              <p style="color: #ffcdd2; margin: 10px 0 0; font-size: 16px;">Find Your Perfect Match in Ghana</p>
+            <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899); padding: 40px 20px;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 32px; font-weight: 800;">🎨 Kofi Lartey</h1>
+              <p style="color: #e9d5ff; margin: 10px 0 0; font-size: 16px; font-weight: 500;">Studios</p>
             </div>
 
             <!-- Welcome Message -->
             <div style="padding: 40px 25px; text-align: center;">
               <div style="font-size: 50px; margin-bottom: 20px;">🎉</div>
-              <h2 style="color: #333; margin-bottom: 15px;">Welcome to the Family, ${fullName}!</h2>
+              <h2 style="color: #1f2937; margin-bottom: 15px; font-size: 24px; font-weight: 700;">Welcome to the Studio, ${fullName}!</h2>
               
-              <p style="color: #666; font-size: 16px; line-height: 1.8; margin-bottom: 30px;">
-                You're now part of Ghana's most trusted dating community. <br>
-                Thousands of amazing people are waiting to meet you!
+              <p style="color: #6b7280; font-size: 16px; line-height: 1.8; margin-bottom: 30px;">
+                You're now part of a vibrant creative community. <br>
+                Explore our gallery features and start showcasing your amazing work!
               </p>
 
               <!-- Features -->
               <div style="text-align: left; margin-bottom: 30px;">
                 <div style="margin-bottom: 15px;">
-                  <span style="color: #e91e63; font-size: 20px;">📍</span>
-                  <span style="color: #555; margin-left: 10px;">Find matches near you in Ghana</span>
+                  <span style="color: #8b5cf6; font-size: 20px;">🖼️</span>
+                  <span style="color: #555; margin-left: 10px;">Create and manage your galleries</span>
                 </div>
                 <div style="margin-bottom: 15px;">
-                  <span style="color: #e91e63; font-size: 20px;">✅</span>
-                  <span style="color: #555; margin-left: 10px;">All profiles are Ghanaian-verified</span>
+                  <span style="color: #8b5cf6; font-size: 20px;">🔐</span>
+                  <span style="color: #555; margin-left: 10px;">Secure access with custom keys</span>
                 </div>
                 <div style="margin-bottom: 15px;">
-                  <span style="color: #e91e63; font-size: 20px;">💬</span>
-                  <span style="color: #555; margin-left: 10px;">Chat with your matches in real-time</span>
+                  <span style="color: #8b5cf6; font-size: 20px;">📸</span>
+                  <span style="color: #555; margin-left: 10px;">Upload and organize your photos</span>
                 </div>
                 <div style="margin-bottom: 15px;">
-                  <span style="color: #e91e63; font-size: 20px;">🔒</span>
-                  <span style="color: #555; margin-left: 10px;">Safe and secure dating experience</span>
+                  <span style="color: #8b5cf6; font-size: 20px;">👥</span>
+                  <span style="color: #555; margin-left: 10px;">Share with clients and collaborators</span>
                 </div>
               </div>
 
               <!-- CTA Button -->
-              <a href="https://ghanalove.com/profile" style="display: inline-block; background: linear-gradient(135deg, #e91e63, #ad1457); color: #ffffff; text-decoration: none; padding: 15px 40px; border-radius: 25px; font-size: 16px; font-weight: bold; margin-top: 10px;">
-                Complete Your Profile
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; text-decoration: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; margin-top: 10px;">
+                Go to Dashboard
               </a>
             </div>
 
             <!-- Tips Section -->
-            <div style="background-color: #fce4ec; padding: 25px; text-align: left;">
-              <h3 style="color: #ad1457; margin-top: 0; font-size: 16px;">💡 Tips for Success:</h3>
+            <div style="background-color: #f5f3ff; padding: 25px; text-align: left;">
+              <h3 style="color: #6366f1; margin-top: 0; font-size: 16px; font-weight: 600;">💡 Getting Started:</h3>
               <ul style="color: #666; font-size: 14px; line-height: 1.8; padding-left: 20px;">
-                <li>Upload clear, recent photos of yourself</li>
-                <li>Write an interesting bio that shows your personality</li>
-                <li>Be genuine and respectful in conversations</li>
-                <li>Verify your identity to build trust</li>
+                <li>Upload high-quality images to your galleries</li>
+                <li>Create access keys to share with clients</li>
+                <li>Customize gallery names and descriptions</li>
+                <li>Manage multiple galleries for different projects</li>
               </ul>
             </div>
 
             <!-- Footer -->
-            <div style="background-color: #f9f9f9; color: #999; font-size: 12px; padding: 20px; border-top: 1px solid #eeeeee; text-align: center;">
-              <p style="margin: 0 0 5px;"><strong>GhanaLove Dating</strong></p>
-              <p style="margin: 0 0 5px;">Accra, Ghana</p>
-              <p style="margin: 0 0 10px;">
-                <a href="https://ghanalove.com" style="color: #e91e63; text-decoration: none;">ghanalove.com</a> •
-                <a href="https://ghanalove.com/privacy" style="color: #e91e63; text-decoration: none;">Privacy</a> •
-                <a href="https://ghanalove.com/terms" style="color: #e91e63; text-decoration: none;">Terms</a>
+            <div style="background: linear-gradient(135deg, #1f2937, #111827); color: #9ca3af; padding: 24px; border-top: 1px solid #374151; text-align: center;">
+              <p style="margin: 0 0 5px; font-weight: 600; color: #ffffff;"><strong>Kofi Lartey Studios</strong></p>
+              <p style="margin: 0 0 5px; font-size: 13px;">Accra, Ghana</p>
+              <p style="margin: 0 0 10px; font-size: 13px;">
+                <a href="https://kofilartey.com" style="color: #8b5cf6; text-decoration: none;">Visit Studio</a> •
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/privacy" style="color: #8b5cf6; text-decoration: none;">Privacy</a> •
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/terms" style="color: #8b5cf6; text-decoration: none;">Terms</a>
               </p>
-              <p style="margin: 0; font-size: 11px;">You received this email because you created an account on GhanaLove.</p>
+              <p style="margin: 0; font-size: 11px;">© ${new Date().getFullYear()} Kofi Lartey Studios. All rights reserved.</p>
             </div>
           </div>
         </div>
       `,
     });
 
-    console.log("Welcome Email Sent: %s", info.messageId);
+    console.log("✅ Welcome Email Sent to:", email);
     return info;
   } catch (error) {
     console.error("❌ Error while sending welcome email:", error);
-    throw error;
+    throw new Error(`Failed to send welcome email: ${error.message}`);
   }
 };
 
