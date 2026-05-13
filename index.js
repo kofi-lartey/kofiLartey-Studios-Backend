@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+dotenv.config(); // ← MUST be first, before other imports use env vars
+
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -9,14 +11,12 @@ import { MONGO_URI, PORT, FRONTEND_URL } from './Config/env.js';
 import { userRouter } from './Routers/userRouter.js';
 import { galleryRouter } from './Routers/galleryRouter.js';
 
-dotenv.config();
-
 const app = express();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isDevelopment = NODE_ENV === 'development';
 
 // ============================================================================
-// 1. SECURITY MIDDLEWARE
+// 1. SECURITY MIDDLEWARE (Must be first)
 // ============================================================================
 
 // Security headers
@@ -25,34 +25,109 @@ app.use(helmet());
 // CORS Configuration - Environment-specific
 const allowedOrigins = isDevelopment
     ? ['http://localhost:5173', 'http://localhost:3000']
-    : [FRONTEND_URL];
+    : [FRONTEND_URL].filter(Boolean); // Filter out undefined/null
+
+// Fallback if no origins configured
+if (allowedOrigins.length === 0) {
+    console.warn('⚠️ No CORS origins configured, adding localhost fallback');
+    allowedOrigins.push('http://localhost:5173');
+}
+
+console.log('✅ Allowed CORS origins:', allowedOrigins);
 
 app.use(
     cors({
         origin: (origin, callback) => {
-            if (!origin || allowedOrigins.includes(origin)) {
+            // Allow requests with no origin (Postman, mobile apps, server-to-server)
+            if (!origin) {
+                return callback(null, true);
+            }
+            
+            if (allowedOrigins.includes(origin)) {
                 callback(null, true);
             } else {
-                callback(new Error('CORS policy: Origin not allowed'));
+                console.warn(`⚠️ CORS blocked origin: ${origin}`);
+                // Use callback(null, false) instead of throwing an error
+                // This still blocks the request but doesn't crash CORS
+                callback(null, false);
             }
         },
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
         credentials: true,
         optionsSuccessStatus: 200,
         maxAge: 3600
     })
 );
 
-// Rate Limiting - Different limits for different endpoints
+// Rate Limiting - Global
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // 100 requests per windowMs
     message: 'Too many requests from this IP, please try again later',
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => isDevelopment
+    skip: (req) => isDevelopment // Skip rate limiting in development
 });
 
+app.use(globalLimiter);
+
+// ============================================================================
+// 2. BODY PARSING MIDDLEWARE
+// ============================================================================
+
+// Parse JSON with size limit
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Content-Type validation - Skip OPTIONS requests (CORS preflight)
+app.use((req, res, next) => {
+    // IMPORTANT: Skip CORS preflight OPTIONS requests
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
+    
+    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+        const contentType = req.headers['content-type'];
+        if (!contentType || !contentType.includes('application/json')) {
+            return res.status(415).json({
+                success: false,
+                message: 'Content-Type must be application/json',
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+    next();
+});
+
+// ============================================================================
+// 3. REQUEST TRACKING & LOGGING MIDDLEWARE
+// ============================================================================
+
+// Add request ID for tracking
+app.use((req, res, next) => {
+    req.id = uuidv4();
+    const timestamp = new Date().toISOString();
+    
+    console.log(`[${timestamp}] [${req.id}] 📥 ${req.method} ${req.originalUrl}`);
+    
+    // Capture response for logging
+    const originalSend = res.send;
+    res.send = function (data) {
+        const statusCode = res.statusCode;
+        const level = statusCode >= 400 ? '❌ ERROR' : '✅ SUCCESS';
+        console.log(`[${timestamp}] [${req.id}] ${level} Status: ${statusCode}`);
+        return originalSend.call(this, data);
+    };
+    
+    next();
+});
+
+// ============================================================================
+// 4. RATE LIMITING FOR AUTH ENDPOINTS
+// ============================================================================
+
+// Stricter rate limit for auth endpoints
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 5, // 5 requests per windowMs
@@ -62,77 +137,39 @@ const authLimiter = rateLimit({
     skip: (req) => isDevelopment
 });
 
-app.use(globalLimiter);
-
-// ============================================================================
-// 2. BODY PARSING & VALIDATION MIDDLEWARE
-// ============================================================================
-
-// Parse JSON with size limit
-app.use(express.json({ limit: '10mb' }));
-
-// Request validation middleware - Content-Type validation
-app.use((req, res, next) => {
-    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-        const contentType = req.headers['content-type'];
-        if (!contentType || !contentType.includes('application/json')) {
-            return res.status(415).json({
-                success: false,
-                message: 'Content-Type must be application/json'
-            });
-        }
-    }
-    next();
-});
-
-// ============================================================================
-// 3. REQUEST TRACKING & LOGGING
-// ============================================================================
-
-// Add request ID for tracking
-app.use((req, res, next) => {
-    req.id = uuidv4();
-    const timestamp = new Date().toISOString();
-    
-    console.log(`[${timestamp}] [${req.id}] ${req.method} ${req.originalUrl}`);
-    
-    // Log response details
-    const originalSend = res.send;
-    res.send = function (data) {
-        const statusCode = res.statusCode;
-        const level = statusCode >= 400 ? 'ERROR' : 'INFO';
-        console.log(`[${timestamp}] [${req.id}] Response: ${statusCode} ${level}`);
-        return originalSend.call(this, data);
-    };
-    
-    next();
-});
-
-// ============================================================================
-// 4. PROTECTED ROUTES WITH RATE LIMITING
-// ============================================================================
-
-// Apply stricter rate limit to auth endpoints
+// Apply auth rate limiting
 app.use('/api/V1/users/register', authLimiter);
 app.use('/api/V1/users/login', authLimiter);
 app.use('/api/V1/users/forgot-password', authLimiter);
 app.use('/api/V1/users/reset-password', authLimiter);
 
 // ============================================================================
-// 5. ROUTES
+// 5. API ROUTES
 // ============================================================================
 
-app.use('/api/V1/users', userRouter);
-app.use('/api/V1/gallery', galleryRouter);
-
-// Health check route
+// Health check route (must be before other routes to avoid conflicts)
 app.get('/api/V1/health', (req, res) => {
     res.status(200).json({
         success: true,
         status: 'OK',
         message: 'Server is running',
         timestamp: new Date().toISOString(),
-        environment: NODE_ENV
+        environment: NODE_ENV,
+        uptime: process.uptime()
+    });
+});
+
+// Main routes
+app.use('/api/V1/users', userRouter);
+app.use('/api/V1/gallery', galleryRouter);
+
+// Root route
+app.get('/', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'Kofi Lartey Studios API',
+        version: '1.0.0',
+        documentation: '/api/V1/health'
     });
 });
 
@@ -140,9 +177,9 @@ app.get('/api/V1/health', (req, res) => {
 // 6. ERROR HANDLING MIDDLEWARE
 // ============================================================================
 
-// 404 handler
+// 404 - Route not found
 app.use((req, res) => {
-    console.error(`[ERROR] [${req.id}] 404 - Route not found: ${req.method} ${req.originalUrl}`);
+    console.error(`[${new Date().toISOString()}] [${req.id}] ❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
     res.status(404).json({
         success: false,
         message: `Route not found: ${req.method} ${req.originalUrl}`,
@@ -162,22 +199,31 @@ app.use((err, req, res, next) => {
     let message = err.message || 'Internal server error';
     let details = null;
 
+    // Handle specific error types
     if (isDuplicate) {
         message = 'Duplicate field value entered';
-        details = Object.keys(err.keyValue);
+        details = Object.keys(err.keyValue || {});
     } else if (isValidationError) {
         message = 'Validation error';
-        details = Object.keys(err.errors);
+        details = Object.keys(err.errors || {});
     } else if (isJWTError) {
         message = 'Invalid authentication token';
     } else if (isJWTExpired) {
         message = 'Authentication token has expired';
     }
 
-    console.error(`[ERROR] [${req.id}] ${statusCode} - ${message}`, {
+    // Add CORS headers to error responses
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+    }
+
+    console.error(`[${new Date().toISOString()}] [${req.id}] ❌ ${statusCode} - ${message}`, {
         error: err.message,
         stack: isDevelopment ? err.stack : undefined,
-        path: req.originalUrl
+        path: req.originalUrl,
+        method: req.method
     });
 
     res.status(statusCode).json({
@@ -186,49 +232,72 @@ app.use((err, req, res, next) => {
         ...(details && { details }),
         requestId: req.id,
         timestamp: new Date().toISOString(),
-        ...(isDevelopment && { error: err.message, stack: err.stack })
+        ...(isDevelopment && { 
+            error: err.message, 
+            stack: err.stack 
+        })
     });
 });
 
 // ============================================================================
-// 7. DATABASE & SERVER INITIALIZATION
+// 7. DATABASE CONNECTION & SERVER START
 // ============================================================================
 
-// MongoDB connection
-mongoose.connect(MONGO_URI)
-    .then(() => {
-        console.log('✓ Connected to MongoDB');
-    })
-    .catch((err) => {
-        console.error('✗ Error connecting to MongoDB:', err.message);
+const startServer = async () => {
+    try {
+        // Connect to MongoDB first
+        await mongoose.connect(MONGO_URI);
+        console.log('✅ Connected to MongoDB');
+
+        // Handle MongoDB connection events
+        mongoose.connection.on('disconnected', () => {
+            console.warn('⚠️ MongoDB disconnected');
+        });
+
+        mongoose.connection.on('error', (err) => {
+            console.error('❌ MongoDB connection error:', err.message);
+        });
+
+        // Start server only after DB connection
+        const server = app.listen(PORT, () => {
+            console.log(`\n🚀 Server is running on port ${PORT}`);
+            console.log(`📡 Environment: ${NODE_ENV}`);
+            console.log(`🔗 Health check: http://localhost:${PORT}/api/V1/health\n`);
+        });
+
+        // Graceful shutdown
+        const gracefulShutdown = (signal) => {
+            console.log(`\n⚠️ ${signal} received. Shutting down gracefully...`);
+            server.close(() => {
+                console.log('✅ HTTP server closed');
+                mongoose.connection.close(false).then(() => {
+                    console.log('✅ MongoDB connection closed');
+                    process.exit(0);
+                });
+            });
+            
+            // Force shutdown after 10 seconds
+            setTimeout(() => {
+                console.error('❌ Forced shutdown after timeout');
+                process.exit(1);
+            }, 10000);
+        };
+
+        // Handle shutdown signals
+        process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+        process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+        // Handle unhandled rejections
+        process.on('unhandledRejection', (err) => {
+            console.error('❌ Unhandled Rejection:', err);
+            server.close(() => process.exit(1));
+        });
+
+    } catch (err) {
+        console.error('❌ Failed to start server:', err.message);
         process.exit(1);
-    });
+    }
+};
 
-// Handle MongoDB connection events
-mongoose.connection.on('disconnected', () => {
-    console.warn('⚠ MongoDB disconnected');
-});
-
-mongoose.connection.on('error', (err) => {
-    console.error('✗ MongoDB connection error:', err.message);
-});
-
-// Start server
-const server = app.listen(PORT, () => {
-    console.log(`✓ Server is running on port ${PORT} in ${NODE_ENV} mode`);
-});
-
-// Graceful shutdown
-process.on('unhandledRejection', (err) => {
-    console.error('✗ Unhandled Rejection:', err.message);
-    server.close(() => process.exit(1));
-});
-
-process.on('SIGTERM', () => {
-    console.log('⚠ SIGTERM received. Shutting down gracefully...');
-    server.close(() => {
-        console.log('✓ Server closed');
-        mongoose.connection.close();
-        process.exit(0);
-    });
-});
+// Start the server
+startServer();
