@@ -21,58 +21,73 @@ const isDevelopment = NODE_ENV === 'development';
 // ============================================================================
 // 1. CORS - MUST BE THE VERY FIRST MIDDLEWARE
 // ============================================================================
+// ============================================================================
+// 1. CORS - MUST BE THE VERY FIRST MIDDLEWARE
+// ============================================================================
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:3000',
-    FRONTEND_URL
-  ].filter(Boolean);
-  
-  // Log every request for debugging
-  console.log(`🌐 ${req.method} ${req.url} - Origin: ${origin}`);
-  
-  // Set CORS headers if origin is allowed
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Access-Control-Max-Age', '86400');
-  
-  // Handle preflight immediately
-  if (req.method === 'OPTIONS') {
-    console.log('✅ Preflight handled');
-    return res.status(200).end();
-  }
-  
-  next();
+    const origin = req.headers.origin;
+    const allowedOrigins = [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000',
+        FRONTEND_URL
+    ].filter(Boolean);
+
+    console.log('═══════════════════════════════════════');
+    console.log(`🌐 ${req.method} ${req.url}`);
+    console.log('📍 Origin:', origin);
+    console.log('📋 Allowed origins:', JSON.stringify(allowedOrigins));
+    console.log('✅ Is allowed:', allowedOrigins.includes(origin));
+    console.log('🔑 FRONTEND_URL env:', FRONTEND_URL);
+
+    // Set CORS headers for ALL responses
+    if (origin && allowedOrigins.includes(origin)) {
+        console.log('🟢 Setting CORS headers for origin:', origin);
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+        console.log('🔴 NOT setting Allow-Origin. Reason:', !origin ? 'no origin' : 'origin not in list');
+    }
+
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Max-Age', '86400');
+
+    if (req.method === 'OPTIONS') {
+        console.log('✅ Sending preflight response');
+        console.log('📤 Response headers:', {
+            'Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
+            'Allow-Credentials': res.getHeader('Access-Control-Allow-Credentials'),
+            'Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
+            'Allow-Headers': res.getHeader('Access-Control-Allow-Headers')
+        });
+        return res.status(200).send('OK');
+    }
+
+    next();
 });
 
 // ============================================================================
 // 2. HELMET - AFTER CORS
 // ============================================================================
 app.use(helmet({
-  crossOriginResourcePolicy: false,
-  crossOriginOpenerPolicy: false,
-  contentSecurityPolicy: false
+    crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: false,
+    contentSecurityPolicy: false
 }));
 
 // ============================================================================
 // 3. RATE LIMITING
 // ============================================================================
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isDevelopment ? 1000 : 100,
-  message: 'Too many requests',
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => isDevelopment,
-  validate: { trustProxy: false }
+    windowMs: 15 * 60 * 1000,
+    max: isDevelopment ? 1000 : 100,
+    message: 'Too many requests',
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => isDevelopment,
+    validate: { trustProxy: false }
 });
 
 app.use(globalLimiter);
@@ -87,22 +102,22 @@ app.use(express.urlencoded({ extended: true }));
 // 5. LOGGING
 // ============================================================================
 app.use((req, res, next) => {
-  req.id = uuidv4();
-  console.log(`[${new Date().toISOString()}] [${req.id}] 📥 ${req.method} ${req.originalUrl}`);
-  next();
+    req.id = uuidv4();
+    console.log(`[${new Date().toISOString()}] [${req.id}] 📥 ${req.method} ${req.originalUrl}`);
+    next();
 });
 
 // ============================================================================
 // 6. ROUTES
 // ============================================================================
 app.get('/api/V1/health', (req, res) => {
-  res.json({
-    success: true,
-    status: 'OK',
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    environment: NODE_ENV
-  });
+    res.json({
+        success: true,
+        status: 'OK',
+        message: 'Server is running',
+        timestamp: new Date().toISOString(),
+        environment: NODE_ENV
+    });
 });
 
 app.use('/api/V1/users', userRouter);
@@ -113,33 +128,33 @@ app.use('/api/V1/gallery', galleryRouter);
 // ============================================================================
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route not found: ${req.method} ${req.originalUrl}`
-  });
+    res.status(404).json({
+        success: false,
+        message: `Route not found: ${req.method} ${req.originalUrl}`
+    });
 });
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.message);
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error',
-    ...(isDevelopment && { error: err.message })
-  });
+    console.error('❌ Error:', err.message);
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        ...(isDevelopment && { error: err.message })
+    });
 });
 
 // ============================================================================
 // 8. START SERVER
 // ============================================================================
 mongoose.connect(MONGO_URI)
-  .then(() => {
-    console.log('✅ Connected to MongoDB');
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+    .then(() => {
+        console.log('✅ Connected to MongoDB');
+        app.listen(PORT, () => {
+            console.log(`🚀 Server running on port ${PORT}`);
+        });
+    })
+    .catch((err) => {
+        console.error('❌ MongoDB error:', err);
+        process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('❌ MongoDB error:', err);
-    process.exit(1);
-  });
