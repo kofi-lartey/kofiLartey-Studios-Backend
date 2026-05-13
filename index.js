@@ -12,6 +12,9 @@ import { userRouter } from './Routers/userRouter.js';
 import { galleryRouter } from './Routers/galleryRouter.js';
 
 const app = express();
+
+// ADD THIS LINE - Must be before rate limiter
+app.set('trust proxy', 1);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isDevelopment = NODE_ENV === 'development';
 const ALLOW_LOCALHOST = process.env.ALLOW_LOCALHOST === 'true' || NODE_ENV === 'development';
@@ -82,13 +85,14 @@ app.use(
 
 // Rate Limiting - Global
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // 100 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: 'Too many requests from this IP, please try again later',
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => isDevelopment // Skip rate limiting in development
-});
+    skip: (req) => isDevelopment,
+    validate: { trustProxy: false } // ✅ Skip X-Forwarded-For validation
+})
 
 app.use(globalLimiter);
 
@@ -149,12 +153,13 @@ app.use((req, res, next) => {
 
 // Stricter rate limit for auth endpoints
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // 5 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: isDevelopment ? 100 : 5, // More attempts in development
     message: 'Too many authentication attempts, please try again later',
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => isDevelopment
+    skip: (req) => isDevelopment,
+    validate: { trustProxy: false } // ✅ Skip X-Forwarded-For validation
 });
 
 // Apply auth rate limiting
