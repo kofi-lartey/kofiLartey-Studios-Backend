@@ -22,43 +22,37 @@ const isDevelopment = NODE_ENV === 'development';
 // Security headers
 app.use(helmet());
 
-// CORS Configuration - Environment-specific
-const allowedOrigins = isDevelopment
-    ? ['http://localhost:5173', 'http://localhost:3000']
-    : [FRONTEND_URL].filter(Boolean); // Filter out undefined/null
+// Base allowed origins (always included)
+const allowedOrigins = [];
 
-// Fallback if no origins configured
+// In development, allow all localhost origins
+if (isDevelopment) {
+    allowedOrigins.push(
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000'
+    );
+}
+
+// Always add the production FRONTEND_URL
+if (FRONTEND_URL) {
+    allowedOrigins.push(FRONTEND_URL);
+    // Remove trailing slash if present
+    const cleanUrl = FRONTEND_URL.replace(/\/$/, '');
+    if (cleanUrl !== FRONTEND_URL) {
+        allowedOrigins.push(cleanUrl);
+    }
+}
+
+// Fallback for development
 if (allowedOrigins.length === 0) {
     console.warn('⚠️ No CORS origins configured, adding localhost fallback');
     allowedOrigins.push('http://localhost:5173');
 }
 
+console.log('✅ Environment:', NODE_ENV);
 console.log('✅ Allowed CORS origins:', allowedOrigins);
-
-app.use(
-    cors({
-        origin: (origin, callback) => {
-            // Allow requests with no origin (Postman, mobile apps, server-to-server)
-            if (!origin) {
-                return callback(null, true);
-            }
-            
-            if (allowedOrigins.includes(origin)) {
-                callback(null, true);
-            } else {
-                console.warn(`⚠️ CORS blocked origin: ${origin}`);
-                // Use callback(null, false) instead of throwing an error
-                // This still blocks the request but doesn't crash CORS
-                callback(null, false);
-            }
-        },
-        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-        credentials: true,
-        optionsSuccessStatus: 200,
-        maxAge: 3600
-    })
-);
 
 // Rate Limiting - Global
 const globalLimiter = rateLimit({
@@ -86,7 +80,7 @@ app.use((req, res, next) => {
     if (req.method === 'OPTIONS') {
         return next();
     }
-    
+
     if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
         const contentType = req.headers['content-type'];
         if (!contentType || !contentType.includes('application/json')) {
@@ -108,9 +102,9 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     req.id = uuidv4();
     const timestamp = new Date().toISOString();
-    
+
     console.log(`[${timestamp}] [${req.id}] 📥 ${req.method} ${req.originalUrl}`);
-    
+
     // Capture response for logging
     const originalSend = res.send;
     res.send = function (data) {
@@ -119,7 +113,7 @@ app.use((req, res, next) => {
         console.log(`[${timestamp}] [${req.id}] ${level} Status: ${statusCode}`);
         return originalSend.call(this, data);
     };
-    
+
     next();
 });
 
@@ -232,9 +226,9 @@ app.use((err, req, res, next) => {
         ...(details && { details }),
         requestId: req.id,
         timestamp: new Date().toISOString(),
-        ...(isDevelopment && { 
-            error: err.message, 
-            stack: err.stack 
+        ...(isDevelopment && {
+            error: err.message,
+            stack: err.stack
         })
     });
 });
@@ -275,7 +269,7 @@ const startServer = async () => {
                     process.exit(0);
                 });
             });
-            
+
             // Force shutdown after 10 seconds
             setTimeout(() => {
                 console.error('❌ Forced shutdown after timeout');
