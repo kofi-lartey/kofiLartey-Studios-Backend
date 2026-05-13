@@ -4,13 +4,13 @@ import { SMTP_HOST, SMTP_PORT, EMAIL_USER, EMAIL_PASS } from '../Config/env.js';
 // Create a transporter for SMTP
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
-  port: SMTP_PORT,
-  secure: SMTP_HOST == 465, // true for 465, false for other ports
+  port: parseInt(SMTP_PORT),
+  secure: parseInt(SMTP_PORT) === 465,
   auth: {
     user: EMAIL_USER,
     pass: EMAIL_PASS,
   },
-})
+});
 
 /**
  * Send OTP verification email
@@ -165,149 +165,165 @@ export const sendOTPEmail = async (email, studioName, otpCode) => {
 };
 
 export const sendPasswordResetEmail = async (email, studioName, resetURL) => {
-    const info = await transporter.sendMail({
-        from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: '🔐 Password Reset Request - Kofi Lartey Studios',
-        text: `Hello ${studioName},\n\nYou requested a password reset. Click the link below to reset your password:\n\n${resetURL}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nKofi Lartey Studios Team`,
-        html: `
-            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden;">
-                <!-- Header -->
-                <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 32px 24px; text-align: center;">
-                    <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">Kofi Lartey Studios</h1>
-                    <p style="color: #c7d2fe; margin: 8px 0 0;">Password Reset Request</p>
-                </div>
+    try {
+        const info = await transporter.sendMail({
+            from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: '🔐 Password Reset Request - Kofi Lartey Studios',
+            text: `Hello ${studioName},\n\nYou requested a password reset. Click the link below to reset your password:\n\n${resetURL}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nBest regards,\nKofi Lartey Studios Team`,
+            html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 32px 24px; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">Kofi Lartey Studios</h1>
+                        <p style="color: #c7d2fe; margin: 8px 0 0;">Password Reset Request</p>
+                    </div>
 
-                <!-- Content -->
-                <div style="padding: 40px 32px; text-align: center;">
-                    <h2 style="color: #1f2937; margin: 0 0 12px; font-size: 22px;">Hello ${studioName},</h2>
-                    <p style="color: #6b7280; margin: 0 0 24px; line-height: 1.6;">
-                        We received a request to reset your password. Click the button below to create a new password.
-                    </p>
-                    
-                    <!-- Reset Button -->
-                    <a href="${resetURL}" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0;">
-                        Reset Password
-                    </a>
+                    <!-- Content -->
+                    <div style="padding: 40px 32px; text-align: center;">
+                        <h2 style="color: #1f2937; margin: 0 0 12px; font-size: 22px;">Hello ${studioName},</h2>
+                        <p style="color: #6b7280; margin: 0 0 24px; line-height: 1.6;">
+                            We received a request to reset your password. Click the button below to create a new password.
+                        </p>
 
-                    <p style="color: #9ca3af; font-size: 13px; margin: 16px 0;">
-                        ⏰ This link expires in <strong>1 hour</strong>
-                    </p>
+                        <!-- Reset Button -->
+                        <a href="${resetURL}" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0;">
+                            Reset Password
+                        </a>
 
-                    <p style="color: #9ca3af; font-size: 13px; margin: 24px 0 0;">
-                        If the button doesn't work, copy and paste this link into your browser:<br>
-                        <a href="${resetURL}" style="color: #6366f1; word-break: break-all;">${resetURL}</a>
-                    </p>
+                        <p style="color: #9ca3af; font-size: 13px; margin: 16px 0;">
+                            ⏰ This link expires in <strong>1 hour</strong>
+                        </p>
 
-                    <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 8px; margin: 24px 0;">
-                        <p style="color: #991b1b; font-size: 12px; margin: 0;">
-                            🔒 Security Tip: If you didn't request this, please ignore this email. Your password will remain unchanged.
+                        <p style="color: #9ca3af; font-size: 13px; margin: 24px 0 0;">
+                            If the button doesn't work, copy and paste this link into your browser:<br>
+                            <a href="${resetURL}" style="color: #6366f1; word-break: break-all;">${resetURL}</a>
+                        </p>
+
+                        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 8px; margin: 24px 0;">
+                            <p style="color: #991b1b; font-size: 12px; margin: 0;">
+                                🔒 Security Tip: If you didn't request this, please ignore this email. Your password will remain unchanged.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="background: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #e5e7eb;">
+                        <p style="color: #9ca3af; margin: 0; font-size: 12px;">
+                            Kofi Lartey Studios © ${new Date().getFullYear()}<br>
+                            Accra, Ghana
                         </p>
                     </div>
                 </div>
+            `
+        });
 
-                <!-- Footer -->
-                <div style="background: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #e5e7eb;">
-                    <p style="color: #9ca3af; margin: 0; font-size: 12px;">
-                        Kofi Lartey Studios © ${new Date().getFullYear()}<br>
-                        Accra, Ghana
-                    </p>
-                </div>
-            </div>
-        `
-    });
-
-    console.log("✅ Password reset email sent to:", email);
-    return info;
+        console.log("✅ Password reset email sent to:", email);
+        return info;
+    } catch (error) {
+        console.error("❌ Error while sending password reset email:", error);
+        throw new Error(`Failed to send password reset email: ${error.message}`);
+    }
 };
 
 export const sendPasswordResetOTP = async (email, studioName, otpCode) => {
-    const info = await transporter.sendMail({
-        from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: '🔐 Password Reset OTP - Kofi Lartey Studios',
-        html: `
-            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">Kofi Lartey Studios</h1>
-                    <p style="color: #c7d2fe;">Password Reset OTP</p>
-                </div>
-                <div style="padding: 40px 30px; text-align: center;">
-                    <h2>Hello ${studioName},</h2>
-                    <p>Your password reset OTP is:</p>
-                    <div style="background: #f3f4f6; padding: 20px; font-size: 32px; font-weight: bold; letter-spacing: 5px; border-radius: 8px; margin: 20px 0;">
-                        ${otpCode}
+    try {
+        const info = await transporter.sendMail({
+            from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: '🔐 Password Reset OTP - Kofi Lartey Studios',
+            html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 30px; text-align: center;">
+                        <h1 style="color: white; margin: 0;">Kofi Lartey Studios</h1>
+                        <p style="color: #c7d2fe;">Password Reset OTP</p>
                     </div>
-                    <p>This OTP expires in <strong>10 minutes</strong></p>
-                    <p>If you didn't request this, please ignore this email.</p>
+                    <div style="padding: 40px 30px; text-align: center;">
+                        <h2>Hello ${studioName},</h2>
+                        <p>Your password reset OTP is:</p>
+                        <div style="background: #f3f4f6; padding: 20px; font-size: 32px; font-weight: bold; letter-spacing: 5px; border-radius: 8px; margin: 20px 0;">
+                            ${otpCode}
+                        </div>
+                        <p>This OTP expires in <strong>10 minutes</strong></p>
+                        <p>If you didn't request this, please ignore this email.</p>
+                    </div>
+                    <div style="background: #f9fafb; padding: 20px; text-align: center;">
+                        <p>Kofi Lartey Studios © ${new Date().getFullYear()}</p>
+                    </div>
                 </div>
-                <div style="background: #f9fafb; padding: 20px; text-align: center;">
-                    <p>Kofi Lartey Studios © ${new Date().getFullYear()}</p>
-                </div>
-            </div>
-        `
-    });
-    return info;
+            `
+        });
+        console.log("✅ Password reset OTP sent to:", email);
+        return info;
+    } catch (error) {
+        console.error("❌ Error while sending password reset OTP:", error);
+        throw new Error(`Failed to send password reset OTP: ${error.message}`);
+    }
 };
 
 export const sendVerificationEmail = async (email, studioName, otpCode) => {
-    const info = await transporter.sendMail({
-        from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: '🔐 Verify Your New Email Address - Kofi Lartey Studios',
-        text: `Hello ${studioName},\n\nYour verification code for your new email address is: ${otpCode}\n\nThis code expires in 10 minutes.\n\nIf you didn't change your email, please contact support immediately.\n\nBest regards,\nKofi Lartey Studios Team`,
-        html: `
-            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden;">
-                <!-- Header -->
-                <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 32px 24px; text-align: center;">
-                    <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">Kofi Lartey Studios</h1>
-                    <p style="color: #c7d2fe; margin: 8px 0 0;">Email Change Verification</p>
-                </div>
+    try {
+        const info = await transporter.sendMail({
+            from: `"Kofi Lartey Studios" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: '🔐 Verify Your New Email Address - Kofi Lartey Studios',
+            text: `Hello ${studioName},\n\nYour verification code for your new email address is: ${otpCode}\n\nThis code expires in 10 minutes.\n\nIf you didn't change your email, please contact support immediately.\n\nBest regards,\nKofi Lartey Studios Team`,
+            html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 32px 24px; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">Kofi Lartey Studios</h1>
+                        <p style="color: #c7d2fe; margin: 8px 0 0;">Email Change Verification</p>
+                    </div>
 
-                <!-- Content -->
-                <div style="padding: 40px 32px; text-align: center;">
-                    <h2 style="color: #1f2937; margin: 0 0 12px; font-size: 22px;">Hello ${studioName},</h2>
-                    <p style="color: #6b7280; margin: 0 0 24px; line-height: 1.6;">
-                        You have requested to change your email address. Use the verification code below to verify your new email.
-                    </p>
-                    
-                    <!-- OTP Box -->
-                    <div style="background: linear-gradient(135deg, #f5f3ff, #ede9fe); padding: 24px; border-radius: 16px; margin: 24px 0;">
-                        <p style="color: #4f46e5; font-size: 14px; font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 1px;">
-                            Your Verification Code
+                    <!-- Content -->
+                    <div style="padding: 40px 32px; text-align: center;">
+                        <h2 style="color: #1f2937; margin: 0 0 12px; font-size: 22px;">Hello ${studioName},</h2>
+                        <p style="color: #6b7280; margin: 0 0 24px; line-height: 1.6;">
+                            You have requested to change your email address. Use the verification code below to verify your new email.
                         </p>
-                        <div style="font-family: 'Courier New', monospace; background: #ffffff; color: #6366f1; font-size: 48px; font-weight: 800; letter-spacing: 12px; padding: 20px; border-radius: 12px; border: 1px solid #c7d2fe;">
-                            ${otpCode}
+
+                        <!-- OTP Box -->
+                        <div style="background: linear-gradient(135deg, #f5f3ff, #ede9fe); padding: 24px; border-radius: 16px; margin: 24px 0;">
+                            <p style="color: #4f46e5; font-size: 14px; font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 1px;">
+                                Your Verification Code
+                            </p>
+                            <div style="font-family: 'Courier New', monospace; background: #ffffff; color: #6366f1; font-size: 48px; font-weight: 800; letter-spacing: 12px; padding: 20px; border-radius: 12px; border: 1px solid #c7d2fe;">
+                                ${otpCode}
+                            </div>
+                            <p style="color: #6b7280; font-size: 13px; margin: 16px 0 0;">
+                                ⏰ This code expires in <strong>10 minutes</strong>
+                            </p>
                         </div>
-                        <p style="color: #6b7280; font-size: 13px; margin: 16px 0 0;">
-                            ⏰ This code expires in <strong>10 minutes</strong>
+
+                        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 8px; margin: 24px 0;">
+                            <p style="color: #991b1b; font-size: 12px; margin: 0;">
+                                🔒 Security Alert: If you didn't change your email, please contact our support team immediately.
+                            </p>
+                        </div>
+
+                        <p style="color: #9ca3af; font-size: 13px; margin: 24px 0 0;">
+                            After verification, you can log in with your new email address.
                         </p>
                     </div>
 
-                    <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 8px; margin: 24px 0;">
-                        <p style="color: #991b1b; font-size: 12px; margin: 0;">
-                            🔒 Security Alert: If you didn't change your email, please contact our support team immediately.
+                    <!-- Footer -->
+                    <div style="background: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #e5e7eb;">
+                        <p style="color: #9ca3af; margin: 0; font-size: 12px;">
+                            Kofi Lartey Studios © ${new Date().getFullYear()}<br>
+                            Accra, Ghana
                         </p>
                     </div>
-
-                    <p style="color: #9ca3af; font-size: 13px; margin: 24px 0 0;">
-                        After verification, you can log in with your new email address.
-                    </p>
                 </div>
+            `
+        });
 
-                <!-- Footer -->
-                <div style="background: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #e5e7eb;">
-                    <p style="color: #9ca3af; margin: 0; font-size: 12px;">
-                        Kofi Lartey Studios © ${new Date().getFullYear()}<br>
-                        Accra, Ghana
-                    </p>
-                </div>
-            </div>
-        `
-    });
-
-    console.log("✅ Verification email sent to:", email);
-    return info;
+        console.log("✅ Verification email sent to:", email);
+        return info;
+    } catch (error) {
+        console.error("❌ Error while sending verification email:", error);
+        throw new Error(`Failed to send verification email: ${error.message}`);
+    }
 };
 
 /**
