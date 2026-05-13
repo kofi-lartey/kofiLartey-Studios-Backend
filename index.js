@@ -13,7 +13,8 @@ import { galleryRouter } from './Routers/galleryRouter.js';
 
 const app = express();
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const isDevelopment = NODE_ENV === 'development';
+const ALLOW_LOCALHOST = process.env.ALLOW_LOCALHOST === 'true' || NODE_ENV === 'development';
+
 
 // ============================================================================
 // 1. SECURITY MIDDLEWARE (Must be first)
@@ -23,10 +24,17 @@ const isDevelopment = NODE_ENV === 'development';
 app.use(helmet());
 
 // Base allowed origins (always included)
+// CORS Configuration
+
 const allowedOrigins = [];
 
-// In development, allow all localhost origins
-if (isDevelopment) {
+// Always add production frontend URL
+if (FRONTEND_URL) {
+    allowedOrigins.push(FRONTEND_URL.replace(/\/$/, '')); // Remove trailing slash
+}
+
+// Allow localhost for development or if explicitly enabled
+if (ALLOW_LOCALHOST) {
     allowedOrigins.push(
         'http://localhost:5173',
         'http://localhost:3000',
@@ -35,24 +43,41 @@ if (isDevelopment) {
     );
 }
 
-// Always add the production FRONTEND_URL
-if (FRONTEND_URL) {
-    allowedOrigins.push(FRONTEND_URL);
-    // Remove trailing slash if present
-    const cleanUrl = FRONTEND_URL.replace(/\/$/, '');
-    if (cleanUrl !== FRONTEND_URL) {
-        allowedOrigins.push(cleanUrl);
-    }
-}
-
-// Fallback for development
+// Fallback if no origins configured
 if (allowedOrigins.length === 0) {
-    console.warn('⚠️ No CORS origins configured, adding localhost fallback');
+    console.warn('⚠️ No CORS origins configured!');
     allowedOrigins.push('http://localhost:5173');
 }
 
-console.log('✅ Environment:', NODE_ENV);
+console.log('🌍 Environment:', NODE_ENV);
+console.log('🏠 Allow Localhost:', ALLOW_LOCALHOST);
 console.log('✅ Allowed CORS origins:', allowedOrigins);
+
+app.use(
+    cors({
+        origin: (origin, callback) => {
+            // Allow requests with no origin (Postman, mobile apps, etc.)
+            if (!origin) {
+                return callback(null, true);
+            }
+
+            const isAllowed = allowedOrigins.includes(origin);
+
+            if (isAllowed) {
+                callback(null, true);
+            } else {
+                console.warn(`❌ CORS blocked: ${origin}`);
+                console.warn('   Allowed:', allowedOrigins);
+                callback(null, false);
+            }
+        },
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+        credentials: true,
+        optionsSuccessStatus: 200,
+        maxAge: 3600
+    })
+);
 
 // Rate Limiting - Global
 const globalLimiter = rateLimit({
