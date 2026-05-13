@@ -18,13 +18,8 @@ app.set('trust proxy', 1);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isDevelopment = NODE_ENV === 'development';
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin
-  crossOriginOpenerPolicy: { policy: "unsafe-none" } // Allow opener access
-}));
-
 // ============================================================================
-// 1. CORS - ABSOLUTE FIRST, before everything
+// 1. CORS - MUST BE THE VERY FIRST MIDDLEWARE
 // ============================================================================
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -34,7 +29,7 @@ app.use((req, res, next) => {
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
     FRONTEND_URL
-].filter(Boolean);
+  ].filter(Boolean);
   
   // Log every request for debugging
   console.log(`🌐 ${req.method} ${req.url} - Origin: ${origin}`);
@@ -59,8 +54,13 @@ app.use((req, res, next) => {
 });
 
 // ============================================================================
-// 2. SECURITY HEADERS - But only non-CORS ones
+// 2. HELMET - AFTER CORS
 // ============================================================================
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false,
+  contentSecurityPolicy: false
+}));
 
 // ============================================================================
 // 3. RATE LIMITING
@@ -111,6 +111,7 @@ app.use('/api/V1/gallery', galleryRouter);
 // ============================================================================
 // 7. ERROR HANDLING
 // ============================================================================
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -118,6 +119,7 @@ app.use((req, res) => {
   });
 });
 
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.message);
   res.status(500).json({
