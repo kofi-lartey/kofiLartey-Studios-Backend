@@ -18,6 +18,11 @@ app.set('trust proxy', 1);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isDevelopment = NODE_ENV === 'development';
 
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin
+  crossOriginOpenerPolicy: { policy: "unsafe-none" } // Allow opener access
+}));
+
 // ============================================================================
 // 1. CORS - ABSOLUTE FIRST, before everything
 // ============================================================================
@@ -29,7 +34,7 @@ app.use((req, res, next) => {
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
     FRONTEND_URL
-  ].filter(Boolean);
+].filter(Boolean);
   
   // Log every request for debugging
   console.log(`🌐 ${req.method} ${req.url} - Origin: ${origin}`);
@@ -56,10 +61,6 @@ app.use((req, res, next) => {
 // ============================================================================
 // 2. SECURITY HEADERS - But only non-CORS ones
 // ============================================================================
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin
-  crossOriginOpenerPolicy: { policy: "unsafe-none" } // Allow opener access
-}));
 
 // ============================================================================
 // 3. RATE LIMITING
