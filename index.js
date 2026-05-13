@@ -137,6 +137,13 @@ app.get('/api/V1/health', (req, res) => {
     });
 });
 
+app.get('/', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Backend is running 🚀'
+    });
+});
+
 app.use('/api/V1/users', userRouter);
 app.use('/api/V1/gallery', galleryRouter);
 
@@ -165,12 +172,6 @@ app.use((err, req, res, next) => {
     });
 });
 
-app.get('/', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Backend is running 🚀'
-    });
-});
 
 // ============================================================================
 // 11. DATABASE + SERVER START
