@@ -13,6 +13,7 @@ import { galleryRouter } from './Routers/galleryRouter.js';
 
 const app = express();
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const isDevelopment = NODE_ENV === 'development';
 const ALLOW_LOCALHOST = process.env.ALLOW_LOCALHOST === 'true' || NODE_ENV === 'development';
 
 
