@@ -22,7 +22,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const isDevelopment = NODE_ENV === 'development';
 
 // ============================================================================
-// 2. CORS (FIXED)
+// 2. ALLOWED ORIGINS
 // ============================================================================
 
 const allowedOrigins = [
@@ -30,60 +30,50 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:3000',
-
     'https://kofilartey-studios.netlify.app',
     'https://www.kofilartey-studios.netlify.app',
-
     FRONTEND_URL
 ].filter(Boolean);
 
 console.log('✅ Allowed Origins:', allowedOrigins);
 
+// ============================================================================
+// 3. CORS (CLEAN + SAFE)
+// ============================================================================
+
 const corsOptions = {
     origin: (origin, callback) => {
 
+        // Allow server-to-server or mobile apps (no origin)
         if (!origin) return callback(null, true);
 
         const normalizedOrigin = origin.replace(/\/$/, '');
 
-        const normalizedAllowed = allowedOrigins.map(o =>
-            o.replace(/\/$/, '')
-        );
+        const isAllowed = allowedOrigins
+            .map(o => o.replace(/\/$/, ''))
+            .includes(normalizedOrigin);
 
         console.log('🌍 Incoming Origin:', normalizedOrigin);
 
-        if (normalizedAllowed.includes(normalizedOrigin)) {
-            console.log('✅ CORS ALLOWED');
+        if (isAllowed) {
             return callback(null, true);
         }
 
         console.log('🚫 CORS BLOCKED:', normalizedOrigin);
-
-        // IMPORTANT: NEVER throw error
-        return callback(null, false);
+        return callback(new Error(`CORS blocked: ${normalizedOrigin}`), false);
     },
 
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-
-    allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Requested-With'
-    ]
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
-// 🔥 MUST be FIRST before everything
+// 🔥 USE ONLY ONE CORS MIDDLEWARE
 app.use(cors(corsOptions));
-app.use((req, res, next) => {
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
-    }
-    next();
-});
+
 
 // ============================================================================
-// 3. RATE LIMITING
+// 4. RATE LIMITING
 // ============================================================================
 
 const globalLimiter = rateLimit({
@@ -101,38 +91,41 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // ============================================================================
-// 4. MIDDLEWARE
+// 5. BODY PARSERS
 // ============================================================================
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// 🔍 DEBUG MIDDLEWARE (IMPORTANT)
+// ============================================================================
+// 6. DEBUG MIDDLEWARE (REMOVE IN PRODUCTION IF NEEDED)
+// ============================================================================
+
 app.use((req, res, next) => {
     console.log('\n==============================');
     console.log('METHOD:', req.method);
     console.log('URL:', req.originalUrl);
     console.log('ORIGIN:', req.headers.origin || 'NULL');
-    console.log('ACCESS-CONTROL-REQUEST-METHOD:', req.headers['access-control-request-method'] || 'NULL');
-    console.log('ACCESS-CONTROL-REQUEST-HEADERS:', req.headers['access-control-request-headers'] || 'NULL');
     console.log('==============================\n');
-
     next();
 });
 
-// Request Logger
+// ============================================================================
+// 7. REQUEST LOGGER
+// ============================================================================
+
 app.use((req, res, next) => {
     req.id = uuidv4();
 
     console.log(
-        `[${new Date().toISOString()}] [${req.id}] 📥 ${req.method} ${req.originalUrl}`
+        `[${new Date().toISOString()}] [${req.id}] ${req.method} ${req.originalUrl}`
     );
 
     next();
 });
 
 // ============================================================================
-// 5. ROUTES
+// 8. ROUTES
 // ============================================================================
 
 app.get('/api/V1/health', (req, res) => {
@@ -148,7 +141,7 @@ app.use('/api/V1/users', userRouter);
 app.use('/api/V1/gallery', galleryRouter);
 
 // ============================================================================
-// 6. 404
+// 9. 404 HANDLER
 // ============================================================================
 
 app.use((req, res) => {
@@ -159,11 +152,11 @@ app.use((req, res) => {
 });
 
 // ============================================================================
-// 7. ERROR HANDLER
+// 10. ERROR HANDLER
 // ============================================================================
 
 app.use((err, req, res, next) => {
-    console.error(`❌ Error [${req.id}]:`, err.stack);
+    console.error(`❌ Error [${req.id}]:`, err.message);
 
     res.status(500).json({
         success: false,
@@ -173,7 +166,7 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================================
-// 8. START SERVER
+// 11. DATABASE + SERVER START
 // ============================================================================
 
 mongoose.connect(MONGO_URI)
@@ -181,7 +174,7 @@ mongoose.connect(MONGO_URI)
         console.log('✅ Connected to MongoDB');
 
         app.listen(PORT, () => {
-            console.log(`🚀 Server running on port ${PORT} in ${NODE_ENV} mode`);
+            console.log(`🚀 Server running on port ${PORT} (${NODE_ENV})`);
         });
     })
     .catch((err) => {
