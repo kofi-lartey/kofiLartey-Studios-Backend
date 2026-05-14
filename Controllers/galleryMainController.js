@@ -1170,6 +1170,89 @@ export const getGalleryByID = async (req, res) => {
 };
 
 
+/**
+ * Get user gallery details with client info
+ * @route GET /api/gallery/main/user/details
+ * @access Private
+ */
+export const getUserGalleryDetails = async (req, res) => {
+    try {
+        const userId = req.user._id || req.user.id;
+        const {
+            page = 1,
+            limit = 10,
+            sortBy = "createdAt",
+            sortOrder = "desc"
+        } = req.query;
+
+        const query = {
+            userId: userId,
+            isDeleted: false
+        };
+
+        const sortOptions = {};
+        sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
+
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
+        const [galleries, total] = await Promise.all([
+            Gallery.find(query)
+                .sort(sortOptions)
+                .skip(skip)
+                .limit(limitNum)
+                .select("galleryID galleryName galleryURL name email createdAt accessKey")
+                .lean(),
+            Gallery.countDocuments(query)
+        ]);
+
+        const galleriesWithDetails = await Promise.all(
+            galleries.map(async (gallery) => {
+                const imagesDoc = await GalleryImages.findOne({ galleryID: gallery.galleryID }).select("totalImages coverImage").lean();
+                const accessKeyDoc = await GalleryAccessKey.findOne({ galleryID: gallery.galleryID }).select("isActive").lean();
+
+                return {
+                    galleryUrl: gallery.galleryURL,
+                    galleryInfo: {
+                        galleryID: gallery.galleryID,
+                        galleryName: gallery.galleryName,
+                        totalImages: imagesDoc?.totalImages || 0
+                    },
+                    accessKey: gallery.accessKey,
+                    isAccessKeyActive: accessKeyDoc?.isActive ?? true,
+                    clientDetails: {
+                        clientName: gallery.name,
+                        email: gallery.email,
+                        dateCreated: gallery.createdAt
+                    }
+                };
+            })
+        );
+
+        res.status(200).json({
+            success: true,
+            data: galleriesWithDetails,
+            pagination: {
+                currentPage: pageNum,
+                totalPages: Math.ceil(total / limitNum),
+                totalItems: total,
+                itemsPerPage: limitNum,
+                hasNextPage: pageNum < Math.ceil(total / limitNum),
+                hasPrevPage: pageNum > 1
+            }
+        });
+
+    } catch (error) {
+        console.error("Get user gallery details error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error fetching gallery details",
+            error: process.env.NODE_ENV === "development" ? error.message : undefined
+        });
+    }
+};
+
 // Helper function to format bytes
 const formatBytes = (bytes) => {
     if (bytes === 0) return '0 Bytes';
