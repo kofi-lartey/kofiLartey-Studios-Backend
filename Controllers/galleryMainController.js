@@ -140,72 +140,173 @@ export const createGallery = async (req, res) => {
 // Add this new endpoint to validate gallery access
 export const validateGalleryAccess = async (req, res) => {
     try {
-        const { galleryId } = req.params;
-        const { accessKey } = req.body;
-        
-        if (!accessKey) {
+        const { galleryID } = req.params;
+        const { accessKey } = req.query;
+
+        // =========================
+        // Validate required fields
+        // =========================
+        if (!galleryID || !accessKey) {
             return res.status(400).json({
                 success: false,
-                message: "Access key is required"
+                message: "Gallery ID and Access Key are required"
             });
         }
-        
-        // Find gallery by ID
-        const gallery = await Gallery.findOne({ 
-            galleryID: galleryId,
-            isDeleted: false 
-        });
-        
+
+        // =========================
+        // Normalize input
+        // =========================
+        let normalizedGalleryID = galleryID.trim();
+        let normalizedAccessKey = accessKey.trim();
+
+        console.log("🔍 Searching for gallery:", normalizedGalleryID);
+
+        // =========================
+        // Find gallery using model
+        // =========================
+        const gallery = await Gallery.findOne({
+            galleryID: normalizedGalleryID,
+            isDeleted: false
+        }).lean();
+
+        console.log("📦 Gallery found:", !!gallery);
+
+        // =========================
+        // Gallery not found
+        // =========================
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
-        // Check if gallery is expired
-        if (gallery.expirationPeriod !== "Never Expire" && gallery.expiresAt && new Date() > gallery.expiresAt) {
-            return res.status(403).json({
-                success: false,
-                message: "This gallery has expired"
-            });
-        }
-        
+
+        // =========================
         // Validate access key
-        if (gallery.accessKey !== accessKey) {
+        // =========================
+        if (gallery.accessKey.trim() !== normalizedAccessKey) {
+            console.log("❌ Invalid access key");
+
             return res.status(401).json({
                 success: false,
                 message: "Invalid access key"
             });
         }
-        
-        // Update view count
-        gallery.metadata.totalViews += 1;
-        gallery.metadata.lastViewedAt = new Date();
-        await gallery.save();
-        
-        // Return gallery data (without sensitive info)
-        res.status(200).json({
-            success: true,
-            message: "Access granted",
-            data: {
-                id: gallery._id,
-                galleryID: gallery.galleryID,
-                name: gallery.name,
-                studioName: gallery.studioName,
-                gallerySettings: gallery.gallerySettings,
-                downloadPermission: gallery.downloadPermission,
-                expirationPeriod: gallery.expirationPeriod,
-                expiresAt: gallery.expiresAt,
-                metadata: gallery.metadata
+
+        // =========================
+        // Check expiration
+        // =========================
+        if (
+            gallery.expiresAt &&
+            new Date(gallery.expiresAt) < new Date()
+        ) {
+            return res.status(403).json({
+                success: false,
+                message: "This gallery link has expired"
+            });
+        }
+
+        // =========================
+        // Update analytics
+        // =========================
+        await Gallery.updateOne(
+            { _id: gallery._id },
+            {
+                $inc: {
+                    "metadata.totalViews": 1
+                },
+                $set: {
+                    "metadata.lastViewedAt": new Date()
+                }
             }
+        );
+
+        // =========================
+        // Format response
+        // =========================
+        const responseData = {
+            galleryID: gallery.galleryID,
+            galleryName: gallery.galleryName,
+            studioName: gallery.studioName,
+            clientName: gallery.name,
+            clientEmail: gallery.email,
+
+            downloadPermission:
+                gallery.downloadPermission || false,
+
+            expirationPeriod:
+                gallery.expirationPeriod || "Never Expire",
+
+            expiresAt: gallery.expiresAt || null,
+
+            totalImages:
+                gallery.totalImages ||
+                gallery.images?.length ||
+                0,
+
+            images: [],
+
+            gallerySettings: gallery.gallerySettings || {
+                allowDownloads:
+                    gallery.downloadPermission || false,
+                allowWatermark: false,
+                themeColor: "#FF6B6B",
+                allowSocialShare: true,
+                requireAccessKey: true
+            }
+        };
+
+        // =========================
+        // Format images
+        // =========================
+        if (
+            gallery.images &&
+            Array.isArray(gallery.images)
+        ) {
+            responseData.images = gallery.images.map(img => ({
+                imageId: img.imageId || img._id,
+                url: img.url,
+                imageName: img.imageName || "Image",
+                originalName:
+                    img.originalName || "image.jpg",
+                size: img.size || 0,
+                sizeFormatted: img.size
+                    ? (
+                        img.size /
+                        1024 /
+                        1024
+                    ).toFixed(2) + " MB"
+                    : "0 MB",
+                mimeType:
+                    img.mimeType || "image/jpeg",
+                uploadedAt:
+                    img.uploadedAt || new Date()
+            }));
+        }
+
+        console.log(
+            `✅ Gallery access granted: ${gallery.galleryName}`
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Gallery access granted",
+            data: responseData
         });
-        
+
     } catch (error) {
-        console.error("Validate gallery access error:", error);
-        res.status(500).json({
+        console.error(
+            "❌ Gallery access validation error:",
+            error
+        );
+
+        return res.status(500).json({
             success: false,
-            message: "Error validating gallery access"
+            message: "Error validating gallery access",
+            error:
+                process.env.NODE_ENV === "development"
+                    ? error.message
+                    : undefined
         });
     }
 };
@@ -966,6 +1067,75 @@ export const getDeletedGalleries = async (req, res) => {
         });
     }
 };
+
+// Get gallery by ID (for client access)
+export const getGalleryByID = async (req, res) => {
+    try {
+        const { galleryID } = req.params;
+        const { accessKey } = req.query;
+        
+        const gallery = await Gallery.findOne({ galleryID: galleryID, isDeleted: false });
+        
+        if (!gallery) {
+            return res.status(404).json({
+                success: false,
+                message: "Gallery not found"
+            });
+        }
+        
+        // Check if access key is required and valid
+        if (gallery.gallerySettings?.requireAccessKey !== false) {
+            if (!accessKey || accessKey !== gallery.accessKey) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Access key required",
+                    requiresAccessKey: true,
+                    galleryName: gallery.galleryName
+                });
+            }
+        }
+        
+        // Check if gallery is expired
+        if (gallery.expiresAt && new Date(gallery.expiresAt) < new Date()) {
+            return res.status(403).json({
+                success: false,
+                message: "This gallery link has expired"
+            });
+        }
+        
+        // Update view count
+        await Gallery.updateOne(
+            { galleryID: galleryID },
+            { 
+                $inc: { "metadata.totalViews": 1 },
+                $set: { "metadata.lastViewedAt": new Date() }
+            }
+        );
+        
+        res.json({
+            success: true,
+            data: {
+                galleryID: gallery.galleryID,
+                galleryName: gallery.galleryName,
+                studioName: gallery.studioName,
+                downloadPermission: gallery.downloadPermission,
+                expirationPeriod: gallery.expirationPeriod,
+                expiresAt: gallery.expiresAt,
+                totalImages: gallery.totalImages,
+                gallerySettings: gallery.gallerySettings
+            }
+        });
+        
+    } catch (error) {
+        console.error("Get gallery error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error fetching gallery",
+            error: error.message
+        });
+    }
+};
+
 
 // Helper function to format bytes
 const formatBytes = (bytes) => {
