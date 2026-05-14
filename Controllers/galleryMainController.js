@@ -139,52 +139,64 @@ export const createGallery = async (req, res) => {
 
 // Add this new endpoint to validate gallery access
 
+// In galleryController.js
+
 export const validateGalleryAccess = async (req, res) => {
     try {
-        const { galleryID } = req.params;  // Gets 'GAL-MP4L04TF-C4998I'
-        const { accessKey } = req.query;   // Gets 'KEY16353364156A'
+        const { galleryID } = req.params;
+        const { accessKey } = req.query;
 
-        console.log(`🔍 Validating gallery: ${galleryID} with key: ${accessKey}`);
+        console.log("🔍 Received galleryID:", galleryID, "accessKey:", accessKey);
 
-        // Find gallery in database
-        const gallery = await Gallery.findOne({
-            galleryID: galleryID,
-            isDeleted: false
-        }).lean();
-
-        if (!gallery) {
-            return res.status(404).json({
+        // Validate input
+        if (!accessKey || accessKey.trim() === "") {
+            return res.status(400).json({
                 success: false,
-                message: "Gallery not found"
+                message: "Access key is required"
             });
         }
 
-        // Validate access key
-        if (gallery.accessKey !== accessKey) {
-            return res.status(401).json({
+        // Find gallery by accessKey
+        const gallery = await Gallery.findOne({
+            accessKey: accessKey.trim(),
+            isDeleted: false
+        }).lean();
+
+        console.log("📦 Gallery found:", gallery ? "YES" : "NO");
+
+        // Gallery not found
+        if (!gallery) {
+            return res.status(404).json({
                 success: false,
-                message: "Invalid access key"
+                message: "Invalid gallery access key"
             });
         }
 
         // Check expiration
-        if (gallery.expiresAt && new Date(gallery.expiresAt) < new Date()) {
+        if (
+            gallery.expiresAt &&
+            new Date(gallery.expiresAt) < new Date()
+        ) {
             return res.status(403).json({
                 success: false,
-                message: "This gallery link has expired"
+                message: "This gallery has expired"
             });
         }
 
-        // Update analytics
+        // Update metadata
         await Gallery.updateOne(
-            { galleryID: galleryID },
+            { _id: gallery._id },
             {
-                $inc: { "metadata.totalViews": 1 },
-                $set: { "metadata.lastViewedAt": new Date() }
+                $inc: {
+                    "metadata.totalViews": 1
+                },
+                $set: {
+                    "metadata.lastViewedAt": new Date()
+                }
             }
         );
 
-        // Return gallery data with images
+        // Response
         return res.status(200).json({
             success: true,
             message: "Gallery access granted",
@@ -194,30 +206,72 @@ export const validateGalleryAccess = async (req, res) => {
                 studioName: gallery.studioName,
                 clientName: gallery.name,
                 clientEmail: gallery.email,
-                downloadPermission: gallery.downloadPermission || false,
-                expirationPeriod: gallery.expirationPeriod || "Never Expire",
+
+                downloadPermission:
+                    gallery.downloadPermission || false,
+
+                expirationPeriod:
+                    gallery.expirationPeriod || "Never Expire",
+
                 expiresAt: gallery.expiresAt || null,
-                totalImages: gallery.totalImages || gallery.images?.length || 0,
-                images: (gallery.images || []).map(img => ({
+
+                totalImages:
+                    gallery.totalImages ||
+                    gallery.images?.length ||
+                    0,
+
+                images: (gallery.images || []).map((img) => ({
                     imageId: img.imageId,
                     url: img.url,
                     imageName: img.imageName || "Image",
-                    originalName: img.originalName || "image.jpg",
+                    originalName:
+                        img.originalName || "image.jpg",
                     size: img.size || 0,
-                    sizeFormatted: img.size ? (img.size / 1024 / 1024).toFixed(2) + " MB" : "0 MB",
+                    sizeFormatted: img.size
+                        ? `${(img.size / 1024 / 1024).toFixed(2)} MB`
+                        : "0 MB",
                     mimeType: img.mimeType || "image/jpeg",
                     uploadedAt: img.uploadedAt || new Date()
                 })),
-                gallerySettings: gallery.gallerySettings || {}
+
+                gallerySettings: {
+                    allowDownloads:
+                        gallery.gallerySettings?.allowDownloads ??
+                        gallery.downloadPermission ??
+                        false,
+
+                    allowWatermark:
+                        gallery.gallerySettings?.allowWatermark ??
+                        false,
+
+                    themeColor:
+                        gallery.gallerySettings?.themeColor ??
+                        "#FF6B6B",
+
+                    allowSocialShare:
+                        gallery.gallerySettings?.allowSocialShare ??
+                        true,
+
+                    requireAccessKey:
+                        gallery.gallerySettings?.requireAccessKey ??
+                        true
+                }
             }
         });
 
     } catch (error) {
-        console.error("Gallery access validation error:", error);
+        console.error(
+            "❌ Gallery access validation error:",
+            error
+        );
+
         return res.status(500).json({
             success: false,
             message: "Error validating gallery access",
-            error: error.message
+            error:
+                process.env.NODE_ENV === "development"
+                    ? error.message
+                    : undefined
         });
     }
 };
@@ -974,6 +1028,74 @@ export const getDeletedGalleries = async (req, res) => {
         res.status(500).json({
             success: false,
             message: "Error fetching deleted galleries",
+            error: process.env.NODE_ENV === "development" ? error.message : undefined
+        });
+    }
+};
+
+// Get gallery with access key via POST (for public access)
+export const getGalleryWithAccessKey = async (req, res) => {
+    try {
+        const { accessKey } = req.body;
+
+        // Validate input
+        if (!accessKey || accessKey.trim() === "") {
+            return res.status(400).json({
+                success: false,
+                message: "Access key is required"
+            });
+        }
+
+        // Find gallery by accessKey only
+        const gallery = await Gallery.findOne({
+            accessKey: accessKey.trim(),
+            isDeleted: false
+        }).lean();
+
+        if (!gallery) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid access key or gallery not found"
+            });
+        }
+
+        // Check if gallery is expired
+        if (gallery.expiresAt && new Date(gallery.expiresAt) < new Date()) {
+            return res.status(403).json({
+                success: false,
+                message: "This gallery has expired"
+            });
+        }
+
+        // Get images from GalleryImages
+        const galleryImagesDoc = await GalleryImages.findOne({ galleryID: gallery.galleryID });
+
+        // Update view count
+        await Gallery.updateOne(
+            { galleryID: gallery.galleryID },
+            {
+                $inc: { "metadata.totalViews": 1 },
+                $set: { "metadata.lastViewedAt": new Date() }
+            }
+        );
+
+        // Return complete gallery data
+        res.status(200).json({
+            success: true,
+            message: "Gallery retrieved successfully",
+            data: {
+                ...gallery,
+                images: galleryImagesDoc?.imagesDetails || [],
+                totalImages: galleryImagesDoc?.totalImages || 0,
+                coverImage: galleryImagesDoc?.coverImage || null
+            }
+        });
+
+    } catch (error) {
+        console.error("Get gallery with access key error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error retrieving gallery",
             error: process.env.NODE_ENV === "development" ? error.message : undefined
         });
     }
