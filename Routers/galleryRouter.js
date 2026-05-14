@@ -36,4 +36,4 @@ galleryRouter.post("/main/create", authenticate, createGallery)
 galleryRouter.get("/:galleryID", getGalleryByID)
 
 // Validate access key and get gallery - Public route (GET with query params)
-galleryRouter.get("/:galleryID/validate", validateGalleryAccess);
+galleryRouter.get("/access/:galleryID", validateGalleryAccess);

@@ -3,9 +3,9 @@ import { Gallery } from "../Model/galleryModal.js";
 import { GalleryName } from "../Model/galleryModal.js";
 import { GalleryImages } from "../Model/galleryModal.js";
 import { GalleryAccessKey } from "../Model/galleryModal.js";
-import { 
-    createGallerySchema, 
-    updateGallerySchema 
+import {
+    createGallerySchema,
+    updateGallerySchema
 } from "../Scheme/gallerySchema.js";
 import mongoose from "mongoose";
 import { calculateExpirationDate, generateAccessKey } from "../Utiles/additionals.js";
@@ -19,11 +19,11 @@ import { calculateExpirationDate, generateAccessKey } from "../Utiles/additional
 export const createGallery = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
-        
+
         const { error, value } = createGallerySchema.validate(req.body, {
             abortEarly: false
         });
-        
+
         if (error) {
             return res.status(400).json({
                 success: false,
@@ -31,7 +31,7 @@ export const createGallery = async (req, res) => {
                 errors: error.details.map(detail => ({ field: detail.path[0], message: detail.message }))
             });
         }
-        
+
         const {
             galleryID,
             name,
@@ -42,13 +42,13 @@ export const createGallery = async (req, res) => {
             gallerySettings = {},
             metadata = {}
         } = value;
-        
+
         // 1. Fetch the Gallery Name document
         const galleryNameDoc = await GalleryName.findOne({
             galleryID: galleryID,
             userId: userId
         });
-        
+
         if (!galleryNameDoc) {
             return res.status(404).json({
                 success: false,
@@ -61,7 +61,7 @@ export const createGallery = async (req, res) => {
             galleryID: galleryID,
             userId: userId
         });
-        
+
         const existingGallery = await Gallery.findOne({ galleryID: galleryID });
         if (existingGallery) {
             return res.status(400).json({
@@ -69,13 +69,13 @@ export const createGallery = async (req, res) => {
                 message: "Gallery configuration already exists for this gallery ID"
             });
         }
-        
+
         const accessKey = generateAccessKey();
         const expiresAt = calculateExpirationDate(expirationPeriod);
         const galleryURL = `${FRONTEND_URL}/clientGallery/${galleryID}`;
-        
+
         // 3. Map the images from the GalleryImages document if they exist
-        const imageURLs = galleryImagesDoc && galleryImagesDoc.imagesDetails 
+        const imageURLs = galleryImagesDoc && galleryImagesDoc.imagesDetails
             ? galleryImagesDoc.imagesDetails.map(img => ({
                 imageId: img.imageId,
                 url: img.imageUrl, // matches imageDetailSchema field name
@@ -84,9 +84,9 @@ export const createGallery = async (req, res) => {
                 size: img.size,
                 mimeType: img.mimeType,
                 uploadedAt: img.uploadedAt
-              }))
+            }))
             : [];
-        
+
         const newGallery = new Gallery({
             userId: userId,
             galleryID: galleryID,
@@ -113,20 +113,20 @@ export const createGallery = async (req, res) => {
                 tags: metadata.tags || [],
             },
         });
-        
+
         await newGallery.save();
-        
+
         if (galleryNameDoc.galleryStatus === "Draft") {
             galleryNameDoc.galleryStatus = "Active";
             await galleryNameDoc.save();
         }
-        
+
         res.status(201).json({
             success: true,
             message: "Gallery created successfully",
             data: newGallery.toObject()
         });
-        
+
     } catch (error) {
         console.error("Create gallery error:", error);
         res.status(500).json({
@@ -138,42 +138,20 @@ export const createGallery = async (req, res) => {
 };
 
 // Add this new endpoint to validate gallery access
+
 export const validateGalleryAccess = async (req, res) => {
     try {
-        const { galleryID } = req.params;
-        const { accessKey } = req.query;
+        const { galleryID } = req.params;  // Gets 'GAL-MP4L04TF-C4998I'
+        const { accessKey } = req.query;   // Gets 'KEY16353364156A'
 
-        // =========================
-        // Validate required fields
-        // =========================
-        if (!galleryID || !accessKey) {
-            return res.status(400).json({
-                success: false,
-                message: "Gallery ID and Access Key are required"
-            });
-        }
+        console.log(`🔍 Validating gallery: ${galleryID} with key: ${accessKey}`);
 
-        // =========================
-        // Normalize input
-        // =========================
-        let normalizedGalleryID = galleryID.trim();
-        let normalizedAccessKey = accessKey.trim();
-
-        console.log("🔍 Searching for gallery:", normalizedGalleryID);
-
-        // =========================
-        // Find gallery using model
-        // =========================
+        // Find gallery in database
         const gallery = await Gallery.findOne({
-            galleryID: normalizedGalleryID,
+            galleryID: galleryID,
             isDeleted: false
         }).lean();
 
-        console.log("📦 Gallery found:", !!gallery);
-
-        // =========================
-        // Gallery not found
-        // =========================
         if (!gallery) {
             return res.status(404).json({
                 success: false,
@@ -181,132 +159,65 @@ export const validateGalleryAccess = async (req, res) => {
             });
         }
 
-        // =========================
         // Validate access key
-        // =========================
-        if (gallery.accessKey.trim() !== normalizedAccessKey) {
-            console.log("❌ Invalid access key");
-
+        if (gallery.accessKey !== accessKey) {
             return res.status(401).json({
                 success: false,
                 message: "Invalid access key"
             });
         }
 
-        // =========================
         // Check expiration
-        // =========================
-        if (
-            gallery.expiresAt &&
-            new Date(gallery.expiresAt) < new Date()
-        ) {
+        if (gallery.expiresAt && new Date(gallery.expiresAt) < new Date()) {
             return res.status(403).json({
                 success: false,
                 message: "This gallery link has expired"
             });
         }
 
-        // =========================
         // Update analytics
-        // =========================
         await Gallery.updateOne(
-            { _id: gallery._id },
+            { galleryID: galleryID },
             {
-                $inc: {
-                    "metadata.totalViews": 1
-                },
-                $set: {
-                    "metadata.lastViewedAt": new Date()
-                }
+                $inc: { "metadata.totalViews": 1 },
+                $set: { "metadata.lastViewedAt": new Date() }
             }
         );
 
-        // =========================
-        // Format response
-        // =========================
-        const responseData = {
-            galleryID: gallery.galleryID,
-            galleryName: gallery.galleryName,
-            studioName: gallery.studioName,
-            clientName: gallery.name,
-            clientEmail: gallery.email,
-
-            downloadPermission:
-                gallery.downloadPermission || false,
-
-            expirationPeriod:
-                gallery.expirationPeriod || "Never Expire",
-
-            expiresAt: gallery.expiresAt || null,
-
-            totalImages:
-                gallery.totalImages ||
-                gallery.images?.length ||
-                0,
-
-            images: [],
-
-            gallerySettings: gallery.gallerySettings || {
-                allowDownloads:
-                    gallery.downloadPermission || false,
-                allowWatermark: false,
-                themeColor: "#FF6B6B",
-                allowSocialShare: true,
-                requireAccessKey: true
-            }
-        };
-
-        // =========================
-        // Format images
-        // =========================
-        if (
-            gallery.images &&
-            Array.isArray(gallery.images)
-        ) {
-            responseData.images = gallery.images.map(img => ({
-                imageId: img.imageId || img._id,
-                url: img.url,
-                imageName: img.imageName || "Image",
-                originalName:
-                    img.originalName || "image.jpg",
-                size: img.size || 0,
-                sizeFormatted: img.size
-                    ? (
-                        img.size /
-                        1024 /
-                        1024
-                    ).toFixed(2) + " MB"
-                    : "0 MB",
-                mimeType:
-                    img.mimeType || "image/jpeg",
-                uploadedAt:
-                    img.uploadedAt || new Date()
-            }));
-        }
-
-        console.log(
-            `✅ Gallery access granted: ${gallery.galleryName}`
-        );
-
+        // Return gallery data with images
         return res.status(200).json({
             success: true,
             message: "Gallery access granted",
-            data: responseData
+            data: {
+                galleryID: gallery.galleryID,
+                galleryName: gallery.galleryName,
+                studioName: gallery.studioName,
+                clientName: gallery.name,
+                clientEmail: gallery.email,
+                downloadPermission: gallery.downloadPermission || false,
+                expirationPeriod: gallery.expirationPeriod || "Never Expire",
+                expiresAt: gallery.expiresAt || null,
+                totalImages: gallery.totalImages || gallery.images?.length || 0,
+                images: (gallery.images || []).map(img => ({
+                    imageId: img.imageId,
+                    url: img.url,
+                    imageName: img.imageName || "Image",
+                    originalName: img.originalName || "image.jpg",
+                    size: img.size || 0,
+                    sizeFormatted: img.size ? (img.size / 1024 / 1024).toFixed(2) + " MB" : "0 MB",
+                    mimeType: img.mimeType || "image/jpeg",
+                    uploadedAt: img.uploadedAt || new Date()
+                })),
+                gallerySettings: gallery.gallerySettings || {}
+            }
         });
 
     } catch (error) {
-        console.error(
-            "❌ Gallery access validation error:",
-            error
-        );
-
+        console.error("Gallery access validation error:", error);
         return res.status(500).json({
             success: false,
             message: "Error validating gallery access",
-            error:
-                process.env.NODE_ENV === "development"
-                    ? error.message
-                    : undefined
+            error: error.message
         });
     }
 };
@@ -316,27 +227,27 @@ export const getGalleryImages = async (req, res) => {
     try {
         const { galleryId } = req.params;
         const { accessKey } = req.query;
-        
+
         if (!accessKey) {
             return res.status(400).json({
                 success: false,
                 message: "Access key is required"
             });
         }
-        
+
         // Find and validate gallery
-        const gallery = await Gallery.findOne({ 
+        const gallery = await Gallery.findOne({
             galleryID: galleryId,
-            isDeleted: false 
+            isDeleted: false
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
+
         // Validate access key
         if (gallery.accessKey !== accessKey) {
             return res.status(401).json({
@@ -344,14 +255,14 @@ export const getGalleryImages = async (req, res) => {
                 message: "Invalid access key"
             });
         }
-        
+
         // Get images (adjust based on your image model)
         const Image = mongoose.model('Image'); // or import your Image model
-        const images = await Image.find({ 
+        const images = await Image.find({
             galleryID: galleryId,
-            isDeleted: false 
+            isDeleted: false
         }).sort({ createdAt: -1 });
-        
+
         res.status(200).json({
             success: true,
             data: {
@@ -371,7 +282,7 @@ export const getGalleryImages = async (req, res) => {
                 totalImages: images.length
             }
         });
-        
+
     } catch (error) {
         console.error("Get gallery images error:", error);
         res.status(500).json({
@@ -397,12 +308,12 @@ export const getAllGalleries = async (req, res) => {
             status,
             search
         } = req.query;
-        
-        const query = { 
+
+        const query = {
             userId: userId,
-            isDeleted: false 
+            isDeleted: false
         };
-        
+
         // Filter by status (active/expired)
         if (status === "active") {
             query.$or = [
@@ -412,7 +323,7 @@ export const getAllGalleries = async (req, res) => {
         } else if (status === "expired") {
             query.expiresAt = { $lt: new Date() };
         }
-        
+
         // Search functionality
         if (search) {
             query.$or = [
@@ -422,14 +333,14 @@ export const getAllGalleries = async (req, res) => {
                 { galleryID: { $regex: search, $options: "i" } }
             ];
         }
-        
+
         const sortOptions = {};
         sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
-        
+
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
         const skip = (pageNum - 1) * limitNum;
-        
+
         const [galleries, total] = await Promise.all([
             Gallery.find(query)
                 .sort(sortOptions)
@@ -439,13 +350,13 @@ export const getAllGalleries = async (req, res) => {
                 .select("-__v"),
             Gallery.countDocuments(query)
         ]);
-        
+
         // Add additional info to each gallery
         const galleriesWithInfo = await Promise.all(
             galleries.map(async (gallery) => {
                 const imagesDoc = await GalleryImages.findOne({ galleryID: gallery.galleryID });
                 const accessKeyDoc = await GalleryAccessKey.findOne({ galleryID: gallery.galleryID });
-                
+
                 return {
                     ...gallery.toObject(),
                     calculatedStatus: gallery.calculatedStatus,
@@ -456,7 +367,7 @@ export const getAllGalleries = async (req, res) => {
                 };
             })
         );
-        
+
         res.status(200).json({
             success: true,
             data: galleriesWithInfo,
@@ -469,7 +380,7 @@ export const getAllGalleries = async (req, res) => {
                 hasPrevPage: pageNum > 1
             }
         });
-        
+
     } catch (error) {
         console.error("Get all galleries error:", error);
         res.status(500).json({
@@ -489,39 +400,39 @@ export const getGalleryById = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
         const { identifier } = req.params;
-        
+
         // Check if identifier is MongoDB ObjectId or galleryID
         const isObjectId = mongoose.Types.ObjectId.isValid(identifier);
-        
-        const query = { 
+
+        const query = {
             userId: userId,
             isDeleted: false
         };
-        
+
         if (isObjectId) {
             query._id = identifier;
         } else {
             query.galleryID = identifier;
         }
-        
+
         const gallery = await Gallery.findOne(query)
             .populate('userId', 'name email')
             .select("-__v");
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found or you don't have permission"
             });
         }
-        
+
         // Get additional info from other collections
         const [imagesDoc, accessKeyDoc, galleryNameDoc] = await Promise.all([
             GalleryImages.findOne({ galleryID: gallery.galleryID }),
             GalleryAccessKey.findOne({ galleryID: gallery.galleryID }),
             GalleryName.findOne({ galleryID: gallery.galleryID })
         ]);
-        
+
         const galleryData = {
             ...gallery.toObject(),
             calculatedStatus: gallery.calculatedStatus,
@@ -533,12 +444,12 @@ export const getGalleryById = async (req, res) => {
             accessCount: accessKeyDoc?.accessCount || 0,
             galleryNameStatus: galleryNameDoc?.galleryStatus || "Unknown"
         };
-        
+
         res.status(200).json({
             success: true,
             data: galleryData
         });
-        
+
     } catch (error) {
         console.error("Get gallery error:", error);
         res.status(500).json({
@@ -558,51 +469,51 @@ export const updateGallery = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
         const { id } = req.params;
-        
+
         // Validate request body
         const { error, value } = updateGallerySchema.validate(req.body, {
             abortEarly: false
         });
-        
+
         if (error) {
             const errors = error.details.map(detail => ({
                 field: detail.path[0],
                 message: detail.message
             }));
-            
+
             return res.status(400).json({
                 success: false,
                 message: "Validation failed",
                 errors: errors
             });
         }
-        
+
         // Find gallery and verify ownership
         const gallery = await Gallery.findOne({
             _id: id,
             userId: userId,
             isDeleted: false
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found or you don't have permission"
             });
         }
-        
+
         // Apply updates
         if (value.name) gallery.name = value.name;
         if (value.email) gallery.email = value.email.toLowerCase();
         if (value.studioName) gallery.studioName = value.studioName;
         if (value.expirationPeriod) gallery.expirationPeriod = value.expirationPeriod;
         if (value.downloadPermission !== undefined) gallery.downloadPermission = value.downloadPermission;
-        
+
         // Update gallery settings
         if (value.gallerySettings) {
             Object.assign(gallery.gallerySettings, value.gallerySettings);
         }
-        
+
         // Update metadata
         if (value.metadata) {
             if (value.metadata.clientNotes !== undefined) {
@@ -612,9 +523,9 @@ export const updateGallery = async (req, res) => {
                 gallery.metadata.tags = value.metadata.tags;
             }
         }
-        
+
         await gallery.save();
-        
+
         res.status(200).json({
             success: true,
             message: "Gallery updated successfully",
@@ -632,7 +543,7 @@ export const updateGallery = async (req, res) => {
                 updatedAt: gallery.updatedAt
             }
         });
-        
+
     } catch (error) {
         console.error("Update gallery error:", error);
         res.status(500).json({
@@ -653,43 +564,43 @@ export const deleteGallery = async (req, res) => {
         const userId = req.user._id || req.user.id;
         const { id } = req.params;
         const { permanent = false } = req.query;
-        
+
         const gallery = await Gallery.findOne({
             _id: id,
             userId: userId
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found or you don't have permission"
             });
         }
-        
+
         if (permanent === 'true') {
             // Check if gallery has images
             const imagesDoc = await GalleryImages.findOne({ galleryID: gallery.galleryID });
-            
+
             if (imagesDoc && imagesDoc.totalImages > 0) {
                 return res.status(400).json({
                     success: false,
                     message: `Cannot permanently delete gallery with ${imagesDoc.totalImages} images. Please delete all images first or use soft delete.`
                 });
             }
-            
+
             // Permanent delete
             await gallery.deleteOne();
-            
+
             // Also delete related data
             await GalleryImages.deleteOne({ galleryID: gallery.galleryID });
             await GalleryAccessKey.deleteOne({ galleryID: gallery.galleryID });
-            
+
             // Update gallery name status
             await GalleryName.findOneAndUpdate(
                 { galleryID: gallery.galleryID },
                 { galleryStatus: "Deleted" }
             );
-            
+
             res.status(200).json({
                 success: true,
                 message: "Gallery permanently deleted",
@@ -701,13 +612,13 @@ export const deleteGallery = async (req, res) => {
         } else {
             // Soft delete
             await gallery.softDelete();
-            
+
             // Update gallery name status
             await GalleryName.findOneAndUpdate(
                 { galleryID: gallery.galleryID },
                 { galleryStatus: "Deleted" }
             );
-            
+
             res.status(200).json({
                 success: true,
                 message: "Gallery soft deleted successfully",
@@ -718,7 +629,7 @@ export const deleteGallery = async (req, res) => {
                 }
             });
         }
-        
+
     } catch (error) {
         console.error("Delete gallery error:", error);
         res.status(500).json({
@@ -738,28 +649,28 @@ export const restoreGallery = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
         const { id } = req.params;
-        
+
         const gallery = await Gallery.findOne({
             _id: id,
             userId: userId,
             isDeleted: true
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Deleted gallery not found"
             });
         }
-        
+
         await gallery.restore();
-        
+
         // Update gallery name status
         await GalleryName.findOneAndUpdate(
             { galleryID: gallery.galleryID },
             { galleryStatus: "Active" }
         );
-        
+
         res.status(200).json({
             success: true,
             message: "Gallery restored successfully",
@@ -769,7 +680,7 @@ export const restoreGallery = async (req, res) => {
                 restoredAt: new Date()
             }
         });
-        
+
     } catch (error) {
         console.error("Restore gallery error:", error);
         res.status(500).json({
@@ -788,19 +699,19 @@ export const restoreGallery = async (req, res) => {
 export const incrementGalleryViews = async (req, res) => {
     try {
         const { galleryID } = req.params;
-        
-        const gallery = await Gallery.findOne({ 
+
+        const gallery = await Gallery.findOne({
             galleryID: galleryID,
-            isDeleted: false 
+            isDeleted: false
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
+
         // Check if expired
         if (gallery.expiresAt && gallery.expiresAt < new Date()) {
             return res.status(403).json({
@@ -808,9 +719,9 @@ export const incrementGalleryViews = async (req, res) => {
                 message: "This gallery has expired"
             });
         }
-        
+
         await gallery.incrementViews();
-        
+
         res.status(200).json({
             success: true,
             message: "View count incremented",
@@ -819,7 +730,7 @@ export const incrementGalleryViews = async (req, res) => {
                 lastViewedAt: gallery.metadata.lastViewedAt
             }
         });
-        
+
     } catch (error) {
         console.error("Increment views error:", error);
         res.status(500).json({
@@ -839,19 +750,19 @@ export const incrementGalleryDownloads = async (req, res) => {
     try {
         const { galleryID } = req.params;
         const { count = 1 } = req.body;
-        
-        const gallery = await Gallery.findOne({ 
+
+        const gallery = await Gallery.findOne({
             galleryID: galleryID,
-            isDeleted: false 
+            isDeleted: false
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
+
         // Check if expired
         if (gallery.expiresAt && gallery.expiresAt < new Date()) {
             return res.status(403).json({
@@ -859,7 +770,7 @@ export const incrementGalleryDownloads = async (req, res) => {
                 message: "This gallery has expired"
             });
         }
-        
+
         // Check if downloads are allowed
         if (!gallery.downloadPermission && !gallery.gallerySettings.allowDownloads) {
             return res.status(403).json({
@@ -867,9 +778,9 @@ export const incrementGalleryDownloads = async (req, res) => {
                 message: "Downloads are not allowed for this gallery"
             });
         }
-        
+
         await gallery.incrementDownloads(count);
-        
+
         res.status(200).json({
             success: true,
             message: "Download count updated",
@@ -877,7 +788,7 @@ export const incrementGalleryDownloads = async (req, res) => {
                 totalDownloads: gallery.metadata.totalDownloads
             }
         });
-        
+
     } catch (error) {
         console.error("Increment downloads error:", error);
         res.status(500).json({
@@ -897,42 +808,42 @@ export const getGalleryStats = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
         const { galleryID } = req.params;
-        
+
         const gallery = await Gallery.findOne({
             galleryID: galleryID,
             userId: userId
         });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
+
         const [imagesDoc, accessKeyDoc] = await Promise.all([
             GalleryImages.findOne({ galleryID: gallery.galleryID }),
             GalleryAccessKey.findOne({ galleryID: gallery.galleryID })
         ]);
-        
+
         // Calculate additional stats
         const totalImageSize = imagesDoc?.imagesDetails.reduce((sum, img) => sum + (img.size || 0), 0) || 0;
-        const averageImageSize = imagesDoc?.imagesDetails.length > 0 
-            ? totalImageSize / imagesDoc.imagesDetails.length 
+        const averageImageSize = imagesDoc?.imagesDetails.length > 0
+            ? totalImageSize / imagesDoc.imagesDetails.length
             : 0;
-        
+
         // Get tag statistics
         const allTags = imagesDoc?.imagesDetails.flatMap(img => img.tags || []) || [];
         const tagCount = {};
         allTags.forEach(tag => {
             tagCount[tag] = (tagCount[tag] || 0) + 1;
         });
-        
+
         const topTags = Object.entries(tagCount)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10)
             .map(([tag, count]) => ({ tag, count }));
-        
+
         res.status(200).json({
             success: true,
             data: {
@@ -970,7 +881,7 @@ export const getGalleryStats = async (req, res) => {
                 }
             }
         });
-        
+
     } catch (error) {
         console.error("Get gallery stats error:", error);
         res.status(500).json({
@@ -989,19 +900,19 @@ export const getGalleryStats = async (req, res) => {
 export const getPublicGalleryInfo = async (req, res) => {
     try {
         const { galleryID } = req.params;
-        
+
         const gallery = await Gallery.findOne({
             galleryID: galleryID,
             isDeleted: false
         }).select("galleryID name studioName gallerySettings galleryURL expiresAt metadata coverImage");
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
+
         // Check if expired
         if (gallery.expiresAt && gallery.expiresAt < new Date()) {
             return res.status(403).json({
@@ -1009,9 +920,9 @@ export const getPublicGalleryInfo = async (req, res) => {
                 message: "This gallery has expired"
             });
         }
-        
+
         const imagesDoc = await GalleryImages.findOne({ galleryID: galleryID });
-        
+
         res.status(200).json({
             success: true,
             data: {
@@ -1027,7 +938,7 @@ export const getPublicGalleryInfo = async (req, res) => {
                 createdAt: gallery.createdAt
             }
         });
-        
+
     } catch (error) {
         console.error("Get public gallery error:", error);
         res.status(500).json({
@@ -1046,18 +957,18 @@ export const getPublicGalleryInfo = async (req, res) => {
 export const getDeletedGalleries = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
-        
+
         const deletedGalleries = await Gallery.find({
             userId: userId,
             isDeleted: true
         }).select("galleryID name studioName deletedAt createdAt");
-        
+
         res.status(200).json({
             success: true,
             data: deletedGalleries,
             count: deletedGalleries.length
         });
-        
+
     } catch (error) {
         console.error("Get deleted galleries error:", error);
         res.status(500).json({
@@ -1073,16 +984,16 @@ export const getGalleryByID = async (req, res) => {
     try {
         const { galleryID } = req.params;
         const { accessKey } = req.query;
-        
+
         const gallery = await Gallery.findOne({ galleryID: galleryID, isDeleted: false });
-        
+
         if (!gallery) {
             return res.status(404).json({
                 success: false,
                 message: "Gallery not found"
             });
         }
-        
+
         // Check if access key is required and valid
         if (gallery.gallerySettings?.requireAccessKey !== false) {
             if (!accessKey || accessKey !== gallery.accessKey) {
@@ -1094,7 +1005,7 @@ export const getGalleryByID = async (req, res) => {
                 });
             }
         }
-        
+
         // Check if gallery is expired
         if (gallery.expiresAt && new Date(gallery.expiresAt) < new Date()) {
             return res.status(403).json({
@@ -1102,16 +1013,16 @@ export const getGalleryByID = async (req, res) => {
                 message: "This gallery link has expired"
             });
         }
-        
+
         // Update view count
         await Gallery.updateOne(
             { galleryID: galleryID },
-            { 
+            {
                 $inc: { "metadata.totalViews": 1 },
                 $set: { "metadata.lastViewedAt": new Date() }
             }
         );
-        
+
         res.json({
             success: true,
             data: {
@@ -1125,7 +1036,7 @@ export const getGalleryByID = async (req, res) => {
                 gallerySettings: gallery.gallerySettings
             }
         });
-        
+
     } catch (error) {
         console.error("Get gallery error:", error);
         res.status(500).json({
