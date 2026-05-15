@@ -172,6 +172,10 @@ app.get('/api/V1/health', (req, res) => {
     });
 });
 
+app.get('/ping', (req, res) => {
+  res.status(204).send(); // No content, just 204 status
+});
+
 app.get('/', (req, res) => {
     res.json({
         success: true,
