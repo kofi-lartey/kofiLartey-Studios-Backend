@@ -8,15 +8,49 @@ import { createGallery, getGalleryByID, validateGalleryAccess, getGalleryWithAcc
 
 export const galleryRouter = Router();
 
+// ==========================================
+// STATIC ROUTES - Must come FIRST
+// ==========================================
 
 // Gallery Name Routes
-galleryRouter.post('/create/galleryName', authenticate, createGalleryName)
+galleryRouter.post('/create/galleryName', authenticate, createGalleryName);
 galleryRouter.get('/gallery/names', authenticate, getUserGalleryNames);
 galleryRouter.get("/gallery/name/:identifier", authenticate, getGalleryNameById);
 galleryRouter.put("/gallery/name/:id", authenticate, updateGalleryName);
 galleryRouter.delete("/gallery/name/:id", authenticate, deleteGalleryName);
 galleryRouter.get("/debug/:galleryID", authenticate, debugGalleryAccess);
 
+// Gallery Stats (static route before parameterized ones)
+galleryRouter.get("/all/stats", authenticate, getGalleryAllStats);
+
+// User gallery details
+galleryRouter.get("/user/details", authenticate, getUserGalleryDetails);
+
+// Main gallery creation
+galleryRouter.post("/main/create", authenticate, createGallery);
+
+// Delete gallery by ID
+galleryRouter.delete("/main/:id", authenticate, deleteGallery);
+
+// Generate Access Key
+galleryRouter.post("/gallery/access-key/:galleryID/generate", authenticate, generateAccessKey);
+
+// ==========================================
+// PUBLIC ROUTES
+// ==========================================
+
+// Get gallery by access key - Public route
+galleryRouter.get("/", getGalleryByID);
+
+// Validate access key and get gallery - Public route
+galleryRouter.get("/access/:galleryID", validateGalleryAccess);
+
+// Get gallery with access key - Public route (POST with body)
+galleryRouter.post("/public", getGalleryWithAccessKey);
+
+// ==========================================
+// PARAMETERIZED ROUTES - Must come LAST
+// ==========================================
 
 // Gallery Images and Details Routes
 galleryRouter.post("/:galleryID/images/upload", authenticate, uploadMultiple, processMultipleImagesOptimized, uploadGalleryImages);
@@ -24,29 +58,3 @@ galleryRouter.get("/:galleryID/images", authenticate, getGalleryImages);
 galleryRouter.get("/:galleryID/images/:imageId", authenticate, getImageById);
 galleryRouter.delete("/:galleryID/images/deleteMultiple", authenticate, deleteMultipleImages);
 galleryRouter.delete("/:galleryID/images/:imageId", authenticate, deleteImage);
-// galleryRouter.get("/test-cloudinary", testCloudinaryConnection)
-
-// generate Access Key
-galleryRouter.post("/gallery/access-key/:galleryID/generate", authenticate, generateAccessKey);
-
-
-// main gallery creation
-galleryRouter.post("/main/create", authenticate, createGallery)
-
-// delete gallery by ID
-galleryRouter.delete("/main/:id", authenticate, deleteGallery);
-
-// Get gallery by access key - Public route
-galleryRouter.get("/", getGalleryByID);
-
-// Validate access key and get gallery - Public route (GET with query params)
-galleryRouter.get("/access/:galleryID", validateGalleryAccess);
-
-// Get gallery with access key - Public route (POST with body)
-galleryRouter.post("/public", getGalleryWithAccessKey);
-
-// get gallery stats for dashboard
-galleryRouter.get("/all/stats", authenticate, getGalleryAllStats);
-
-// Get user gallery details with client info
-galleryRouter.get("/user/details", authenticate, getUserGalleryDetails);
