@@ -950,6 +950,182 @@ export const getGalleryStats = async (req, res) => {
     }
 };
 
+export const getGalleryAllStats = async (req, res) => {
+    try {
+        const userId = req.user._id || req.user.id;
+
+        // Get all galleries for this user
+        const galleries = await Gallery.find({
+            userId: userId,
+            isDeleted: false
+        }).lean();
+
+        if (!galleries || galleries.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No galleries found for this user"
+            });
+        }
+
+        // Get all galleryIDs
+        const galleryIDs = galleries.map(g => g.galleryID);
+
+        // Fetch all GalleryImages and GalleryAccessKeys in parallel
+        const [allImagesDocs, allAccessKeyDocs, allGalleryNames] = await Promise.all([
+            GalleryImages.find({ galleryID: { $in: galleryIDs } }).lean(),
+            GalleryAccessKey.find({ galleryID: { $in: galleryIDs } }).lean(),
+            GalleryName.find({ galleryID: { $in: galleryIDs } }).lean()
+        ]);
+
+        // Create lookup maps for faster access
+        const imagesMap = {};
+        allImagesDocs.forEach(doc => {
+            imagesMap[doc.galleryID] = doc;
+        });
+
+        const accessKeyMap = {};
+        allAccessKeyDocs.forEach(doc => {
+            accessKeyMap[doc.galleryID] = doc;
+        });
+
+        const galleryNameMap = {};
+        allGalleryNames.forEach(doc => {
+            galleryNameMap[doc.galleryID] = doc;
+        });
+
+        // Calculate overall stats
+        let totalImages = 0;
+        let totalSize = 0;
+        let totalViews = 0;
+        let totalDownloads = 0;
+        let activeGalleries = 0;
+        let expiredGalleries = 0;
+        let draftGalleries = 0;
+        const allTags = [];
+        const allImageSizes = [];
+
+        // Per-gallery stats
+        const galleryStats = galleries.map(gallery => {
+            const imagesDoc = imagesMap[gallery.galleryID];
+            const accessKeyDoc = accessKeyMap[gallery.galleryID];
+            const galleryNameDoc = galleryNameMap[gallery.galleryID];
+
+            const imageCount = imagesDoc?.totalImages || 0;
+            const imageSize = imagesDoc?.imagesDetails?.reduce((sum, img) => sum + (img.size || 0), 0) || 0;
+            const views = gallery.metadata?.totalViews || 0;
+            const downloads = gallery.metadata?.totalDownloads || 0;
+
+            // Aggregate stats
+            totalImages += imageCount;
+            totalSize += imageSize;
+            totalViews += views;
+            totalDownloads += downloads;
+
+            // Count statuses
+            const status = galleryNameDoc?.galleryStatus || gallery.calculatedStatus || 'Active';
+            if (status === 'Active') activeGalleries++;
+            else if (status === 'Expired') expiredGalleries++;
+            else if (status === 'Draft') draftGalleries++;
+
+            // Collect tags
+            if (imagesDoc?.imagesDetails) {
+                imagesDoc.imagesDetails.forEach(img => {
+                    if (img.tags?.length > 0) {
+                        allTags.push(...img.tags);
+                    }
+                    if (img.size) {
+                        allImageSizes.push(img.size);
+                    }
+                });
+            }
+
+            // Favorite images in this gallery
+            const favoriteCount = imagesDoc?.imagesDetails?.filter(img => img.isFavorite).length || 0;
+
+            return {
+                galleryID: gallery.galleryID,
+                galleryName: gallery.galleryName || galleryNameDoc?.galleryName || 'Untitled',
+                clientName: gallery.name || 'N/A',
+                clientEmail: gallery.email || 'N/A',
+                status: status,
+                createdAt: gallery.createdAt,
+                expiresAt: gallery.expiresAt,
+                expirationPeriod: gallery.expirationPeriod,
+                imageStats: {
+                    totalImages: imageCount,
+                    totalSize: formatBytes(imageSize),
+                    averageSize: imageCount > 0 ? formatBytes(imageSize / imageCount) : '0 B',
+                    coverImage: imagesDoc?.coverImage || null,
+                    favoriteCount: favoriteCount
+                },
+                accessStats: {
+                    totalViews: views,
+                    totalDownloads: downloads,
+                    lastViewedAt: gallery.metadata?.lastViewedAt || null,
+                    accessKeyActive: accessKeyDoc?.isActive ?? false,
+                    totalAccessKeyUses: accessKeyDoc?.accessCount || 0
+                },
+                settings: {
+                    allowDownloads: gallery.downloadPermission || gallery.gallerySettings?.allowDownloads || false,
+                    requireAccessKey: gallery.gallerySettings?.requireAccessKey ?? true,
+                    allowSocialShare: gallery.gallerySettings?.allowSocialShare ?? false
+                },
+                url: gallery.galleryURL || null
+            };
+        });
+
+        // Calculate tag statistics
+        const tagCount = {};
+        allTags.forEach(tag => {
+            tagCount[tag] = (tagCount[tag] || 0) + 1;
+        });
+
+        const topTags = Object.entries(tagCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([tag, count]) => ({ tag, count }));
+
+        // Calculate overall image size stats
+        const averageImageSize = allImageSizes.length > 0
+            ? allImageSizes.reduce((sum, size) => sum + size, 0) / allImageSizes.length
+            : 0;
+
+        res.status(200).json({
+            success: true,
+            data: {
+                // Overall stats
+                overview: {
+                    totalGalleries: galleries.length,
+                    activeGalleries: activeGalleries,
+                    expiredGalleries: expiredGalleries,
+                    draftGalleries: draftGalleries,
+                    totalImages: totalImages,
+                    totalStorageUsed: formatBytes(totalSize),
+                    totalViews: totalViews,
+                    totalDownloads: totalDownloads,
+                    averageImageSize: formatBytes(averageImageSize),
+                    averageImagesPerGallery: galleries.length > 0 ? (totalImages / galleries.length).toFixed(1) : 0
+                },
+                // Tag statistics across all galleries
+                tagStats: {
+                    totalUniqueTags: Object.keys(tagCount).length,
+                    topTags: topTags
+                },
+                // Per-gallery breakdown
+                galleries: galleryStats.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            }
+        });
+
+    } catch (error) {
+        console.error("Get gallery stats error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error fetching gallery statistics",
+            error: process.env.NODE_ENV === "development" ? error.message : undefined
+        });
+    }
+};
+
 /**
  * Get public gallery info (no auth required)
  * @route GET /api/gallery/main/public/:galleryID
