@@ -22,7 +22,7 @@ galleryRouter.get("/debug/:galleryID", authenticate, debugGalleryAccess);
 galleryRouter.post("/:galleryID/images/upload", authenticate,uploadMultiple,processMultipleImagesOptimized,uploadGalleryImages);
 galleryRouter.get("/:galleryID/images",authenticate, getGalleryImages);
 galleryRouter.get("/:galleryID/images/:imageId", authenticate, getImageById);
-galleryRouter.delete("/:galleryID/images/deleteMultiple", authenticate, deleteMultipleImages);
+galleryRouter.delete("/:galleryID/images/deleteMultiple", authenticate,deleteMultipleImages);
 galleryRouter.delete("/:galleryID/images/:imageId", authenticate, deleteImage);
 // galleryRouter.get("/test-cloudinary", testCloudinaryConnection)
 
