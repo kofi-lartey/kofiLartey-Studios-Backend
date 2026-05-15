@@ -9,6 +9,7 @@ import {
 } from "../Scheme/gallerySchema.js";
 import mongoose from "mongoose";
 import { calculateExpirationDate, generateAccessKey } from "../Utiles/additionals.js";
+import { extractPublicIdFromUrl, deleteFromCloudinary } from "../Utiles/uploadFiles.js";
 
 /**
  * Create a new gallery (main configuration)
@@ -613,12 +614,14 @@ export const updateGallery = async (req, res) => {
  * @route DELETE /api/gallery/main/:id
  * @access Private
  */
+// controllers/galleryController.js
+
 export const deleteGallery = async (req, res) => {
     try {
         const userId = req.user._id || req.user.id;
         const { id } = req.params;
-        const { permanent = false } = req.query;
 
+        // Find the gallery
         const gallery = await Gallery.findOne({
             _id: id,
             userId: userId
@@ -631,65 +634,66 @@ export const deleteGallery = async (req, res) => {
             });
         }
 
-        if (permanent === 'true') {
-            // Check if gallery has images
-            const imagesDoc = await GalleryImages.findOne({ galleryID: gallery.galleryID });
+        const galleryID = gallery.galleryID;
 
-            if (imagesDoc && imagesDoc.totalImages > 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Cannot permanently delete gallery with ${imagesDoc.totalImages} images. Please delete all images first or use soft delete.`
-                });
-            }
+        // Get image URLs from both collections for Cloudinary cleanup
+        const [galleryImages, clientGallery] = await Promise.all([
+            GalleryImages.findOne({ galleryID: galleryID }).select('imagesDetails.imageUrl').lean(),
+            Gallery.findOne({ _id: id }).select('images.url').lean()
+        ]);
 
-            // Permanent delete
-            await gallery.deleteOne();
+        // Collect unique Cloudinary public IDs
+        const cloudinaryIds = new Set();
 
-            // Also delete related data
-            await GalleryImages.deleteOne({ galleryID: gallery.galleryID });
-            await GalleryAccessKey.deleteOne({ galleryID: gallery.galleryID });
+        galleryImages?.imagesDetails?.forEach(img => {
+            const publicId = extractPublicIdFromUrl(img.imageUrl);
+            if (publicId) cloudinaryIds.add(publicId);
+        });
 
-            // Update gallery name status
-            await GalleryName.findOneAndUpdate(
-                { galleryID: gallery.galleryID },
+        clientGallery?.images?.forEach(img => {
+            const publicId = extractPublicIdFromUrl(img.url);
+            if (publicId) cloudinaryIds.add(publicId);
+        });
+
+        // Delete everything from database
+        await Promise.all([
+            Gallery.deleteOne({ _id: id }),
+            GalleryImages.deleteOne({ galleryID: galleryID }),
+            GalleryAccessKey.deleteOne({ galleryID: galleryID }),
+            GalleryName.findOneAndUpdate(
+                { galleryID: galleryID },
                 { galleryStatus: "Deleted" }
-            );
+            )
+        ]);
 
-            res.status(200).json({
-                success: true,
-                message: "Gallery permanently deleted",
-                data: {
-                    galleryID: gallery.galleryID,
-                    deletedAt: new Date()
-                }
-            });
-        } else {
-            // Soft delete
-            await gallery.softDelete();
-
-            // Update gallery name status
-            await GalleryName.findOneAndUpdate(
-                { galleryID: gallery.galleryID },
-                { galleryStatus: "Deleted" }
-            );
-
-            res.status(200).json({
-                success: true,
-                message: "Gallery soft deleted successfully",
-                data: {
-                    galleryID: gallery.galleryID,
-                    isDeleted: true,
-                    deletedAt: gallery.deletedAt
-                }
+        // Delete from Cloudinary (background)
+        if (cloudinaryIds.size > 0) {
+            Promise.allSettled(
+                Array.from(cloudinaryIds).map(id => deleteFromCloudinary(id))
+            ).then(results => {
+                const succeeded = results.filter(r => r.status === 'fulfilled').length;
+                console.log(`☁️ Cloudinary: ${succeeded}/${results.length} images deleted`);
             });
         }
+
+        console.log(`🗑️ Gallery ${galleryID} permanently deleted`);
+
+        res.status(200).json({
+            success: true,
+            message: "Gallery permanently deleted",
+            data: {
+                galleryID: galleryID,
+                imagesDeleted: cloudinaryIds.size,
+                deletedAt: new Date()
+            }
+        });
 
     } catch (error) {
         console.error("Delete gallery error:", error);
         res.status(500).json({
             success: false,
             message: "Error deleting gallery",
-            error: process.env.NODE_ENV === "development" ? error.message : undefined
+            error: error.message
         });
     }
 };
@@ -1202,7 +1206,7 @@ export const getUserGalleryDetails = async (req, res) => {
                 .sort(sortOptions)
                 .skip(skip)
                 .limit(limitNum)
-                .select("galleryID galleryName galleryURL name email createdAt accessKey")
+                .select("_id galleryID galleryName galleryURL name email createdAt accessKey") // ✅ Added _id
                 .lean(),
             Gallery.countDocuments(query)
         ]);
@@ -1213,8 +1217,10 @@ export const getUserGalleryDetails = async (req, res) => {
                 const accessKeyDoc = await GalleryAccessKey.findOne({ galleryID: gallery.galleryID }).select("isActive").lean();
 
                 return {
+                    _id: gallery._id, // ✅ Include MongoDB _id
                     galleryUrl: gallery.galleryURL,
                     galleryInfo: {
+                        _id: gallery._id, // ✅ Include in galleryInfo too
                         galleryID: gallery.galleryID,
                         galleryName: gallery.galleryName,
                         totalImages: imagesDoc?.totalImages || 0

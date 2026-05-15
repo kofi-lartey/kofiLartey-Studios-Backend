@@ -4,7 +4,7 @@ import { createGalleryName, deleteGalleryName, getGalleryNameById, getUserGaller
 import { deleteImage, deleteMultipleImages, getGalleryImages, getImageById, uploadGalleryImages } from "../Controllers/galleryImagesController.js";
 import {   processMultipleImagesOptimized, uploadMultiple } from "../Utiles/uploadFiles.js";
 import { generateAccessKey } from "../Utiles/additionals.js";
-import { createGallery, getGalleryByID, validateGalleryAccess, getGalleryWithAccessKey, getUserGalleryDetails } from "../Controllers/galleryMainController.js";
+import { createGallery, getGalleryByID, validateGalleryAccess, getGalleryWithAccessKey, getUserGalleryDetails, deleteGallery } from "../Controllers/galleryMainController.js";
 
 export const galleryRouter = Router();
 
@@ -32,6 +32,9 @@ galleryRouter.post("/gallery/access-key/:galleryID/generate", authenticate, gene
 
 // main gallery creation
 galleryRouter.post("/main/create", authenticate, createGallery)
+
+// delete gallery by ID
+galleryRouter.delete("/main/:id", authenticate, deleteGallery);
 
 // Get gallery by access key - Public route
 galleryRouter.get("/", getGalleryByID);
