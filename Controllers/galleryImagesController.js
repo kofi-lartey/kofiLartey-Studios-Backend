@@ -1,4 +1,4 @@
-import { GalleryImages } from "../Model/galleryModal.js";
+import { Gallery, GalleryImages } from "../Model/galleryModal.js";
 import { GalleryName } from "../Model/galleryModal.js";
 import {
     deleteFromCloudinary,
@@ -233,60 +233,160 @@ export const deleteMultipleImages = async (req, res) => {
             });
         }
 
-        const galleryImages = await GalleryImages.findOne({ galleryID: galleryID });
+        // Fetch both collections
+        const [galleryImages, clientGallery] = await Promise.all([
+            GalleryImages.findOne({ galleryID: galleryID }),
+            Gallery.findOne({ galleryID: galleryID })
+        ]);
 
-        if (!galleryImages) {
-            return res.status(404).json({
-                success: false,
-                message: "Gallery images not found"
-            });
-        }
-
+        // Track deletion results
         const deletedImages = [];
+        const notFoundImages = [];
         const cloudinaryDeletions = [];
+        
+        const deletionStats = {
+            fromGalleryImages: 0,
+            fromClientGallery: 0,
+            notFound: 0
+        };
 
-        // Delete each image
+        // Process each image ID
         for (const imageId of imageIds) {
-            const imageToDelete = galleryImages.imagesDetails.find(img => img.imageId === imageId);
-            
-            if (imageToDelete) {
-                // Track for Cloudinary deletion
-                cloudinaryDeletions.push(extractPublicIdFromUrl(imageToDelete.imageUrl));
-                
-                // Remove from array
-                const imageIndex = galleryImages.imagesDetails.findIndex(img => img.imageId === imageId);
-                galleryImages.imagesDetails.splice(imageIndex, 1);
-                
+            let imageUrl = null;
+            let imageName = null;
+            let foundInGalleryImages = false;
+            let foundInClientGallery = false;
+
+            // Check and remove from GalleryImages
+            if (galleryImages) {
+                const imageInGalleryImages = galleryImages.imagesDetails.find(
+                    img => img.imageId === imageId
+                );
+
+                if (imageInGalleryImages) {
+                    imageUrl = imageInGalleryImages.imageUrl;
+                    imageName = imageInGalleryImages.imageName;
+                    
+                    // Remove from array
+                    const imageIndex = galleryImages.imagesDetails.findIndex(
+                        img => img.imageId === imageId
+                    );
+                    if (imageIndex !== -1) {
+                        galleryImages.imagesDetails.splice(imageIndex, 1);
+                        foundInGalleryImages = true;
+                        deletionStats.fromGalleryImages++;
+                    }
+                }
+            }
+
+            // Check and remove from Client Gallery
+            if (clientGallery) {
+                const imageInClientGallery = clientGallery.images.find(
+                    img => img.imageId === imageId
+                );
+
+                if (imageInClientGallery) {
+                    // Capture image details if not already set
+                    if (!imageUrl) {
+                        imageUrl = imageInClientGallery.url;
+                    }
+                    if (!imageName) {
+                        imageName = imageInClientGallery.imageName;
+                    }
+
+                    // Remove from array
+                    const imageIndex = clientGallery.images.findIndex(
+                        img => img.imageId === imageId
+                    );
+                    if (imageIndex !== -1) {
+                        clientGallery.images.splice(imageIndex, 1);
+                        foundInClientGallery = true;
+                        deletionStats.fromClientGallery++;
+                    }
+                }
+            }
+
+            // Track results
+            if (foundInGalleryImages || foundInClientGallery) {
                 deletedImages.push({
                     imageId: imageId,
-                    imageName: imageToDelete.imageName
+                    imageName: imageName || 'Unknown',
+                    imageUrl: imageUrl,
+                    deletedFrom: {
+                        galleryImages: foundInGalleryImages,
+                        clientGallery: foundInClientGallery
+                    }
                 });
+
+                // Add to Cloudinary deletion queue if we have URL
+                if (imageUrl) {
+                    const publicId = extractPublicIdFromUrl(imageUrl);
+                    if (publicId) {
+                        cloudinaryDeletions.push(publicId);
+                    }
+                }
+            } else {
+                notFoundImages.push(imageId);
+                deletionStats.notFound++;
             }
         }
 
-        // Update gallery counts
-        galleryImages.totalImages = galleryImages.imagesDetails.length;
-        
-        // Update cover image if needed
-        if (galleryImages.coverImage && deletedImages.some(img => img.imageUrl === galleryImages.coverImage)) {
-            galleryImages.coverImage = galleryImages.imagesDetails.length > 0 
-                ? galleryImages.imagesDetails[0].imageUrl 
-                : null;
+        // If no images were found at all
+        if (deletedImages.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "None of the provided image IDs were found in any collection",
+                data: {
+                    notFoundImages: notFoundImages
+                }
+            });
         }
-        
-        // Update last upload timestamp
-        if (galleryImages.imagesDetails.length > 0) {
-            galleryImages.lastImageUploadedAt = galleryImages.imagesDetails[galleryImages.imagesDetails.length - 1].uploadedAt;
-        } else {
-            galleryImages.lastImageUploadedAt = null;
-        }
-        
-        await galleryImages.save();
 
-        // Delete from Cloudinary (don't await, do in background)
-        Promise.all(cloudinaryDeletions.filter(id => id).map(publicId => 
-            deleteFromCloudinary(publicId).catch(err => console.error(`Failed to delete ${publicId}:`, err))
-        ));
+        // Update GalleryImages
+        if (galleryImages) {
+            galleryImages.totalImages = galleryImages.imagesDetails.length;
+            
+            // Update cover image if any deleted image was the cover
+            if (galleryImages.coverImage && deletedImages.some(img => img.imageUrl === galleryImages.coverImage)) {
+                galleryImages.coverImage = galleryImages.imagesDetails.length > 0 
+                    ? galleryImages.imagesDetails[0].imageUrl 
+                    : null;
+            }
+            
+            // Update last upload timestamp
+            if (galleryImages.imagesDetails.length > 0) {
+                galleryImages.lastImageUploadedAt = 
+                    galleryImages.imagesDetails[galleryImages.imagesDetails.length - 1].uploadedAt;
+            } else {
+                galleryImages.lastImageUploadedAt = null;
+            }
+            
+            await galleryImages.save();
+        }
+
+        // Update Client Gallery
+        if (clientGallery) {
+            clientGallery.totalImages = clientGallery.images.length;
+            clientGallery.updatedAt = new Date();
+            await clientGallery.save();
+        }
+
+        // Delete from Cloudinary in background
+        if (cloudinaryDeletions.length > 0) {
+            Promise.all(
+                cloudinaryDeletions
+                    .filter(id => id)
+                    .map(publicId => 
+                        deleteFromCloudinary(publicId).catch(err => 
+                            console.error(`Failed to delete ${publicId} from Cloudinary:`, err)
+                        )
+                    )
+            );
+        }
+
+        // Get final counts
+        const finalGalleryImages = await GalleryImages.findOne({ galleryID: galleryID });
+        const finalClientGallery = await Gallery.findOne({ galleryID: galleryID });
 
         res.status(200).json({
             success: true,
@@ -294,7 +394,13 @@ export const deleteMultipleImages = async (req, res) => {
             data: {
                 deletedCount: deletedImages.length,
                 deletedImages: deletedImages,
-                totalImagesRemaining: galleryImages.totalImages
+                notFoundCount: notFoundImages.length,
+                notFoundImages: notFoundImages.length > 0 ? notFoundImages : undefined,
+                deletionStats: deletionStats,
+                totalImagesRemaining: {
+                    galleryImages: finalGalleryImages?.totalImages || 0,
+                    clientGallery: finalClientGallery?.totalImages || 0
+                }
             }
         });
 
@@ -596,77 +702,162 @@ export const deleteImage = async (req, res) => {
             });
         }
 
-        const galleryImages = await GalleryImages.findOne({ galleryID: galleryID });
+        // Track deletion results
+        const deletionResults = {
+            galleryImages: false,
+            clientGallery: false,
+            cloudinary: false
+        };
 
-        if (!galleryImages) {
-            return res.status(404).json({
-                success: false,
-                message: "Gallery images not found"
-            });
-        }
+        let imageUrl = null;
+        let imageName = null;
 
-        // Find the image to delete
-        const imageToDelete = galleryImages.imagesDetails.find(img => img.imageId === imageId);
+        // ==========================================
+        // 1. CHECK AND DELETE FROM GALLERY IMAGES COLLECTION
+        // ==========================================
+        const galleryImages = await GalleryImages.findOne({ 
+            galleryID: galleryID,
+            "imagesDetails.imageId": imageId 
+        });
 
-        if (!imageToDelete) {
-            return res.status(404).json({
-                success: false,
-                message: "Image not found"
-            });
-        }
-
-        // Remove image from imagesDetails array
-        const imageIndex = galleryImages.imagesDetails.findIndex(img => img.imageId === imageId);
-        
-        if (imageIndex !== -1) {
-            // Remove from array
-            galleryImages.imagesDetails.splice(imageIndex, 1);
+        if (galleryImages) {
+            // Find the image before deleting
+            const imageToDelete = galleryImages.imagesDetails.find(
+                img => img.imageId === imageId
+            );
             
-            // Update total count
-            galleryImages.totalImages = galleryImages.imagesDetails.length;
-            
-            // Update cover image if the deleted image was the cover
-            if (galleryImages.coverImage === imageToDelete.imageUrl) {
-                galleryImages.coverImage = galleryImages.imagesDetails.length > 0 
-                    ? galleryImages.imagesDetails[0].imageUrl 
-                    : null;
-            }
-            
-            // Update last upload timestamp
-            if (galleryImages.imagesDetails.length > 0) {
-                galleryImages.lastImageUploadedAt = galleryImages.imagesDetails[galleryImages.imagesDetails.length - 1].uploadedAt;
-            } else {
-                galleryImages.lastImageUploadedAt = null;
-            }
-            
-            // Save the updated document
-            await galleryImages.save();
-        }
+            if (imageToDelete) {
+                imageUrl = imageToDelete.imageUrl;
+                imageName = imageToDelete.imageName;
 
-        // Delete from Cloudinary
-        try {
-            const publicId = extractPublicIdFromUrl(imageToDelete.imageUrl);
-            if (publicId) {
-                const deletionResult = await deleteFromCloudinary(publicId);
-                if (deletionResult.result === 'ok') {
-                    console.log(`✅ Deleted from Cloudinary: ${publicId}`);
-                } else {
-                    console.warn(`Cloudinary deletion warning: ${deletionResult.result}`);
+                // Remove image using $pull
+                const updateResult = await GalleryImages.updateOne(
+                    { galleryID: galleryID },
+                    { 
+                        $pull: { imagesDetails: { imageId: imageId } },
+                        $inc: { totalImages: -1 }
+                    }
+                );
+
+                if (updateResult.modifiedCount > 0) {
+                    deletionResults.galleryImages = true;
+                    
+                    // Update cover image if deleted image was the cover
+                    const updatedGallery = await GalleryImages.findOne({ galleryID: galleryID });
+                    if (updatedGallery) {
+                        if (updatedGallery.coverImage === imageUrl) {
+                            updatedGallery.coverImage = updatedGallery.imagesDetails.length > 0 
+                                ? updatedGallery.imagesDetails[0].imageUrl 
+                                : null;
+                        }
+                        
+                        // Update last upload timestamp
+                        if (updatedGallery.imagesDetails.length > 0) {
+                            updatedGallery.lastImageUploadedAt = 
+                                updatedGallery.imagesDetails[updatedGallery.imagesDetails.length - 1].uploadedAt;
+                        } else {
+                            updatedGallery.lastImageUploadedAt = null;
+                        }
+                        
+                        await updatedGallery.save();
+                    }
+                    
+                    console.log(`✅ Deleted from GalleryImages: ${imageId}`);
                 }
             }
-        } catch (cloudError) {
-            console.error("Cloudinary deletion error:", cloudError);
-            // Don't fail the request if Cloudinary deletion fails
         }
+
+        // ==========================================
+        // 2. CHECK AND DELETE FROM CLIENT GALLERY COLLECTION
+        // ==========================================
+        const clientGallery = await Gallery.findOne({ 
+            galleryID: galleryID,
+            "images.imageId": imageId 
+        });
+
+        if (clientGallery) {
+            // Find the image before deleting
+            const clientImage = clientGallery.images.find(
+                img => img.imageId === imageId
+            );
+            
+            if (clientImage) {
+                // Capture image details if not already set
+                if (!imageUrl) {
+                    imageUrl = clientImage.url;
+                }
+                if (!imageName) {
+                    imageName = clientImage.imageName;
+                }
+
+                // Remove image using $pull
+                const updateResult = await Gallery.updateOne(
+                    { galleryID: galleryID },
+                    { 
+                        $pull: { images: { imageId: imageId } },
+                        $inc: { totalImages: -1 },
+                        $set: { updatedAt: new Date() }
+                    }
+                );
+
+                if (updateResult.modifiedCount > 0) {
+                    deletionResults.clientGallery = true;
+                    console.log(`✅ Deleted from Client Gallery: ${imageId}`);
+                }
+            }
+        }
+
+        // If image not found in any collection
+        if (!deletionResults.galleryImages && !deletionResults.clientGallery) {
+            return res.status(404).json({
+                success: false,
+                message: "Image not found in any gallery collection",
+                data: {
+                    imageId: imageId,
+                    searchedIn: {
+                        galleryImages: true,
+                        clientGallery: true
+                    }
+                }
+            });
+        }
+
+        // ==========================================
+        // 3. DELETE FROM CLOUDINARY (if we have the URL)
+        // ==========================================
+        if (imageUrl) {
+            try {
+                const publicId = extractPublicIdFromUrl(imageUrl);
+                if (publicId) {
+                    const deletionResult = await deleteFromCloudinary(publicId);
+                    if (deletionResult.result === 'ok') {
+                        deletionResults.cloudinary = true;
+                        console.log(`✅ Deleted from Cloudinary: ${publicId}`);
+                    } else {
+                        console.warn(`Cloudinary deletion warning: ${deletionResult.result}`);
+                    }
+                }
+            } catch (cloudError) {
+                console.error("Cloudinary deletion error:", cloudError);
+                // Don't fail the request if Cloudinary deletion fails
+            }
+        }
+
+        // ==========================================
+        // GET FINAL COUNT
+        // ==========================================
+        const finalGalleryImages = await GalleryImages.findOne({ galleryID: galleryID });
+        const totalRemaining = finalGalleryImages?.totalImages || 0;
 
         res.status(200).json({
             success: true,
-            message: "Image deleted successfully",
+            message: `Image deleted successfully from ${Object.entries(deletionResults).filter(([key, val]) => val && key !== 'cloudinary').length} collection(s)`,
             data: {
                 imageId: imageId,
-                imageName: imageToDelete.imageName,
-                imageUrl: imageToDelete.imageUrl,
-                totalImagesRemaining: galleryImages.totalImages,
+                imageName: imageName || 'Unknown',
+                imageUrl: imageUrl || 'Unknown',
+                deletedFrom: deletionResults,
+                totalImagesRemaining: totalRemaining,
                 deletedAt: new Date()
             }
         });

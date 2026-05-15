@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authenticate } from "../Middleware/auth.js";
 import { createGalleryName, deleteGalleryName, getGalleryNameById, getUserGalleryNames, updateGalleryName,debugGalleryAccess } from "../Controllers/galleryNameController.js";
-import { deleteImage, getGalleryImages, getImageById, uploadGalleryImages } from "../Controllers/galleryImagesController.js";
+import { deleteImage, deleteMultipleImages, getGalleryImages, getImageById, uploadGalleryImages } from "../Controllers/galleryImagesController.js";
 import {   processMultipleImagesOptimized, uploadMultiple } from "../Utiles/uploadFiles.js";
 import { generateAccessKey } from "../Utiles/additionals.js";
 import { createGallery, getGalleryByID, validateGalleryAccess, getGalleryWithAccessKey, getUserGalleryDetails } from "../Controllers/galleryMainController.js";
@@ -22,6 +22,7 @@ galleryRouter.get("/debug/:galleryID", authenticate, debugGalleryAccess);
 galleryRouter.post("/:galleryID/images/upload", authenticate,uploadMultiple,processMultipleImagesOptimized,uploadGalleryImages);
 galleryRouter.get("/:galleryID/images",authenticate, getGalleryImages);
 galleryRouter.get("/:galleryID/images/:imageId", authenticate, getImageById);
+galleryRouter.delete("/:galleryID/images/deleteMultiple", authenticate, deleteMultipleImages);
 galleryRouter.delete("/:galleryID/images/:imageId", authenticate, deleteImage);
 // galleryRouter.get("/test-cloudinary", testCloudinaryConnection)
 
